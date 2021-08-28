@@ -12,6 +12,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) != 2 {
+		log.Fatal("USAGE: push file")
+	}
+
+	file := os.Args[1]
+
 	ln, err := net.Listen("tcp", ":0")
 	if err != nil {
 		log.Fatal(err)
@@ -28,7 +34,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	server, err := zeroconf.Register("GoZeroconf", "_workstation._tcp", "local.", portn, []string{"txtv=0", "lo=1", "la=2"}, nil)
+	server, err := zeroconf.Register(file, "_workstation._tcp", "local.", portn, []string{"txtv=0", "lo=1", "la=2"}, nil)
 	if err != nil {
 		panic(err)
 	}
