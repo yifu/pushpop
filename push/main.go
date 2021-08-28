@@ -34,7 +34,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	server, err := zeroconf.Register(file, "_workstation._tcp", "local.", portn, []string{"txtv=0", "lo=1", "la=2"}, nil)
+	server, err := zeroconf.Register(file, "_pushpop._tcp", "local.", portn, nil, nil)
 	if err != nil {
 		panic(err)
 	}
