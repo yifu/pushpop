@@ -9,7 +9,7 @@ import (
 	"net"
 	"github.com/grandcat/zeroconf"
 	"strconv"
-	"ios"
+	"io"
 )
 
 func main() {
@@ -67,12 +67,18 @@ func accept(ln net.Listener, fn string) {
 }
 
 func processConn(conn net.Conn, fn string) {
+	defer conn.Close()
+
 	f, err := os.Open(fn)
 	if err != nil {
 		log.Println("Unable to open file: ", err)
+		return
 	}
-	n, err := io.Copy(conn, f)
+	defer f.Close()
+
+	_, err = io.Copy(conn, f)
 	if err != nil {
 		log.Println("Unable to copy file: ", err)
+		return
 	}
 }
