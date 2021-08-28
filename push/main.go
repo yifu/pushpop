@@ -9,6 +9,7 @@ import (
 	"net"
 	"github.com/grandcat/zeroconf"
 	"strconv"
+	"ios"
 )
 
 func main() {
@@ -16,7 +17,7 @@ func main() {
 		log.Fatal("USAGE: push file")
 	}
 
-	file := os.Args[1]
+	fn := os.Args[1]
 
 	ln, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -34,7 +35,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	server, err := zeroconf.Register(file, "_pushpop._tcp", "local.", portn, nil, nil)
+	go accept(ln, fn)
+
+	server, err := zeroconf.Register(fn, "_pushpop._tcp", "local.", portn, nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -51,4 +54,25 @@ func main() {
 	}
 	
 	log.Println("Shutting down.")
+}
+
+func accept(ln net.Listener, fn string) {
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			log.Fatal(err)
+		}
+		go processConn(conn, fn)
+	}
+}
+
+func processConn(conn net.Conn, fn string) {
+	f, err := os.Open(fn)
+	if err != nil {
+		log.Println("Unable to open file: ", err)
+	}
+	n, err := io.Copy(conn, f)
+	if err != nil {
+		log.Println("Unable to copy file: ", err)
+	}
 }
