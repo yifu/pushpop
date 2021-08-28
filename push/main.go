@@ -6,11 +6,23 @@ import (
 	"log"
 	"os"
 	"syscall"
+	"net"
 	"github.com/grandcat/zeroconf"
 )
 
 func main() {
-	fmt.Println("Hello world.")
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		log.Fatal(err)
+	}
+	addr := ln.Addr()
+	hostport := addr.String()
+	host, port, err := net.SplitHostPort(hostport)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("host:", host, ", port:", port)
+
 	server, err := zeroconf.Register("GoZeroconf", "_workstation._tcp", "local.", 42424, []string{"txtv=0", "lo=1", "la=2"}, nil)
 	if err != nil {
 		panic(err)
