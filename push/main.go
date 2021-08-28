@@ -18,6 +18,11 @@ func main() {
 	}
 
 	fn := os.Args[1]
+	f, err := os.Open(fn)
+	if err != nil {
+		log.Fatal("Unable to open file: ", err)
+	}
+	f.Close()
 
 	ln, err := net.Listen("tcp", ":0")
 	if err != nil {
