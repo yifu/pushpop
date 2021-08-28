@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"net"
 	"github.com/grandcat/zeroconf"
+	"strconv"
 )
 
 func main() {
@@ -22,8 +23,12 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Println("host:", host, ", port:", port)
+	portn, err := strconv.Atoi(port)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	server, err := zeroconf.Register("GoZeroconf", "_workstation._tcp", "local.", 42424, []string{"txtv=0", "lo=1", "la=2"}, nil)
+	server, err := zeroconf.Register("GoZeroconf", "_workstation._tcp", "local.", portn, []string{"txtv=0", "lo=1", "la=2"}, nil)
 	if err != nil {
 		panic(err)
 	}
