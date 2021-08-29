@@ -29,7 +29,7 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
-			//io.Copy(os.Stdout, conn)
+
 			fn := entry.Instance
 			fmt.Println("Try opening ", fn)
 			f, err := os.Create(fn)
