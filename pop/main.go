@@ -11,7 +11,6 @@ import (
 )
 
 func main() {
-	fmt.Println("Hello world pop.")
 	resolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
 		log.Fatalln("Failed to initialize resolver:", err.Error())
