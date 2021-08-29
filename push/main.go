@@ -10,6 +10,7 @@ import (
 	"github.com/grandcat/zeroconf"
 	"strconv"
 	"io"
+	"path/filepath"
 )
 
 func main() {
@@ -38,7 +39,9 @@ func main() {
 
 	go accept(ln, fn)
 
-	server, err := zeroconf.Register(fn, "_pushpop._tcp", "local.", portn, nil, nil)
+	basefn := filepath.Base(fn)
+
+	server, err := zeroconf.Register(basefn, "_pushpop._tcp", "local.", portn, nil, nil)
 	if err != nil {
 		panic(err)
 	}
