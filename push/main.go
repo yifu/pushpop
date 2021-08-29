@@ -100,6 +100,7 @@ func processConn(conn net.Conn, fn string) {
 		return
 	}
 	bar := pb.Full.Start64(fi.Size())
+	defer bar.Finish()
 	barReader := bar.NewProxyReader(f)
 
 	_, err = io.Copy(conn, barReader)
@@ -107,5 +108,4 @@ func processConn(conn net.Conn, fn string) {
 		log.Println("Unable to copy file: ", err)
 		return
 	}
-	bar.Finish()
 }
