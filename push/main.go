@@ -52,9 +52,6 @@ func main() {
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	select {
 	case <-sig:
-		// Exit by user
-	// case <-time.After(time.Second * 120):
-	// 	// Exit by timeout
 	}
 	
 	log.Println("Shutting down.")
