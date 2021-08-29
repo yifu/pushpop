@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"context"
 	"log"
-	"time"
 	"net"
 	"io"
 	"os"
@@ -17,6 +16,8 @@ func main() {
 	if err != nil {
 		log.Fatalln("Failed to initialize resolver:", err.Error())
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
 
 	entries := make(chan *zeroconf.ServiceEntry)
 	go func(results <-chan *zeroconf.ServiceEntry) {
@@ -38,17 +39,16 @@ func main() {
 			}
 
 			io.Copy(f, conn)
+			cancel()
 			return
 		}
 		log.Println("No more entries.")
 	}(entries)
 
-	err = resolver.Browse(context.Background(), "_pushpop._tcp", "local.", entries)
+	err = resolver.Browse(ctx, "_pushpop._tcp", "local.", entries)
 	if err != nil {
 		log.Fatalln("Failed to browse:", err.Error())
 	}
 
-	<-context.Background().Done()
-	// Wait some additional time to see debug messages on go routine shutdown.
-	time.Sleep(1 * time.Second)
+	<-ctx.Done()
 }
