@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"io"
 	"path/filepath"
+	"os/user"
 )
 
 func main() {
@@ -37,11 +38,18 @@ func main() {
 		log.Fatal(err)
 	}
 
+	usr, err := user.Current()
+	if err != nil {
+		log.Fatal(err)
+	}
+	kv := fmt.Sprintf("user=%s", usr.Username)
+	text := []string{kv}
+
 	go accept(ln, fn)
 
 	basefn := filepath.Base(fn)
 
-	server, err := zeroconf.Register(basefn, "_pushpop._tcp", "local.", portn, nil, nil)
+	server, err := zeroconf.Register(basefn, "_pushpop._tcp", "local.", portn, text, nil)
 	if err != nil {
 		panic(err)
 	}
