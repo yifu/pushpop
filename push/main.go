@@ -12,6 +12,7 @@ import (
 	"io"
 	"path/filepath"
 	"os/user"
+	"github.com/cheggaaa/pb/v3"
 )
 
 func main() {
@@ -93,9 +94,18 @@ func processConn(conn net.Conn, fn string) {
 	}
 	defer f.Close()
 
-	_, err = io.Copy(conn, f)
+	fi, err := f.Stat()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	bar := pb.Full.Start64(fi.Size())
+	barReader := bar.NewProxyReader(f)
+
+	_, err = io.Copy(conn, barReader)
 	if err != nil {
 		log.Println("Unable to copy file: ", err)
 		return
 	}
+	bar.Finish()
 }
