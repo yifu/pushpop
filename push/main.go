@@ -12,10 +12,13 @@ import (
 	"io"
 	"path/filepath"
 	"os/user"
-	"github.com/cheggaaa/pb/v3"
+	"github.com/gosuri/uiprogress"
 )
 
 func main() {
+	uiprogress.Start()
+	defer uiprogress.Stop()
+
 	if len(os.Args) != 2 {
 		log.Fatal("USAGE: push file")
 	}
@@ -99,13 +102,26 @@ func processConn(conn net.Conn, fn string) {
 		log.Println(err)
 		return
 	}
-	bar := pb.Full.Start64(fi.Size())
-	defer bar.Finish()
-	barReader := bar.NewProxyReader(f)
+	bar := uiprogress.AddBar(int(fi.Size()))
+	bar.AppendCompleted()
+	bar.PrependElapsed()
 
-	_, err = io.Copy(conn, barReader)
+	r := &BarReader {f, bar}
+
+	_, err = io.Copy(conn, r)
 	if err != nil {
 		log.Println("Unable to copy file: ", err)
 		return
 	}
+}
+
+type BarReader struct {
+	f *os.File
+	b *uiprogress.Bar
+}
+
+func (r *BarReader) Read(buf []byte) (int, error) {
+	n, err := r.f.Read(buf)
+	r.b.Set(r.b.Current()+n)
+	return n, err
 }
