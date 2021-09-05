@@ -1,0 +1,11 @@
+Package: pushpop
+Version: 0.0-2
+Section: base
+Priority: optional
+Architecture: i386
+Depends:
+Maintainer: Yves Baumes <ybaumes@gmail.com>
+Description: Push a file, pop it from the other end.
+ Push a file from one end, and you can pop it from the other end, you do not
+ need to know its name.
+
