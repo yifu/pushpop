@@ -49,7 +49,10 @@ func main() {
 				continue
 			}
 
-			ip := entry.AddrIPv4[0]
+			ip, err := findMatchingIP(entry.AddrIPv4)
+			if err != nil {
+				log.Fatal(err)
+			}
 			port := entry.Port
 			ipport := fmt.Sprintf("%v:%v", ip, port)
 			conn, err := net.Dial("tcp", ipport)
@@ -93,4 +96,35 @@ func getUserName(entry *zeroconf.ServiceEntry) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("User key/value pair not found")
+}
+
+func findMatchingIP(ips []net.IP) (string, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		log.Fatal(err);
+	}
+	for _, iface := range ifaces {
+		//fmt.Println("iface name: ", iface.Name)
+		iface_addrs, err := iface.Addrs()
+		if err != nil {
+			log.Fatal(err)
+		}
+		//fmt.Println(addrs)
+		for _, iface_addr := range iface_addrs {
+			_, iface_net, err := net.ParseCIDR(iface_addr.String())
+			if err != nil {
+				log.Fatal(err)
+			}
+			for _, ip := range ips {
+				if iface_net.Contains(ip) {
+					fmt.Println("Found an interface: ", iface.Name,
+								" with ip: ", iface_addr,
+								" with net: ", iface_net,
+								" corresponding to ip: ", ip)
+					return ip.String(), nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("Found no matching interface")
 }
