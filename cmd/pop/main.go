@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
+	"net/http"
 	"os"
 
 	"github.com/grandcat/zeroconf"
@@ -54,10 +54,16 @@ func main() {
 				continue
 			}
 			port := entry.Port
-			ipport := fmt.Sprintf("%v:%v", ip, port)
-			conn, err := net.Dial("tcp", ipport)
+			// Download the file over HTTP from the push server.
+			url := fmt.Sprintf("http://%v:%v/", ip, port)
+			resp, err := http.Get(url)
 			if err != nil {
-				log.Println(err)
+				log.Println("http get error:", err)
+				continue
+			}
+			if resp.StatusCode != 200 {
+				log.Printf("unexpected http status: %s", resp.Status)
+				resp.Body.Close()
 				continue
 			}
 
@@ -66,12 +72,12 @@ func main() {
 			f, err := os.Create(fn)
 			if err != nil {
 				log.Println(err)
-				conn.Close()
+				resp.Body.Close()
 				continue
 			}
 
-			_, err = io.Copy(f, conn)
-			conn.Close()
+			_, err = io.Copy(f, resp.Body)
+			resp.Body.Close()
 			f.Close()
 			if err != nil {
 				log.Println("copy error:", err)
