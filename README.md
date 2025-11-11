@@ -42,5 +42,5 @@ Notes
 	- Add a `--force` option to overwrite existing files without confirmation.
 	- Do not handle checksums for now (see below).
 - [ ] Implement using multiple progress bar (e.g. `mpb`).
-- [ ] (Optional) Implement a mechanism to preallocate the final file size for downloads (file reservation).
+- [ ] ~~(Optional) Implement a mechanism to preallocate the final file size for downloads (file reservation).~~
 - [ ] (Optional) Add checksum/integrity verification after download.
