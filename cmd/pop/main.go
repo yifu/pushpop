@@ -1,28 +1,36 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/grandcat/zeroconf"
 	"github.com/yifu/pushpop/pkg/discovery"
 )
 
 func main() {
+	// Parse flags: --force
+	force := flag.Bool("force", false, "overwrite existing file without confirmation")
+	flag.Parse()
+
 	var username string
-	if len(os.Args) == 1 {
+	args := flag.Args()
+	if len(args) == 0 {
 		username = os.Getenv("USER")
 		if username == "" {
 			log.Fatal("unable to determine username")
 		}
-	} else if len(os.Args) == 2 {
-		username = os.Args[1]
+	} else if len(args) == 1 {
+		username = args[0]
 	} else {
-		fmt.Println("USAGE: pop <username>")
+		fmt.Println("USAGE: pop [--force] <username>")
 		os.Exit(1)
 	}
 
@@ -54,35 +62,98 @@ func main() {
 				continue
 			}
 			port := entry.Port
-			// Download the file over HTTP from the push server.
 			url := fmt.Sprintf("http://%v:%v/", ip, port)
-			resp, err := http.Get(url)
+
+			fn := entry.Instance
+			partFn := fn + ".part"
+
+			// Check if final file exists
+			if fileExists(fn) && !*force {
+				fmt.Printf("File %s already exists. Overwrite? [y/N]: ", fn)
+				reader := bufio.NewReader(os.Stdin)
+				answer, _ := reader.ReadString('\n')
+				answer = strings.TrimSpace(strings.ToLower(answer))
+				if answer != "y" && answer != "yes" {
+					fmt.Println("Aborted by user.")
+					continue
+				}
+			}
+
+			// Check if .part file exists for resume
+			var offset int64 = 0
+			if fileExists(partFn) {
+				fi, err := os.Stat(partFn)
+				if err == nil {
+					offset = fi.Size()
+				}
+			}
+
+			// Prepare HTTP request (with Range if resuming)
+			req, err := http.NewRequest("GET", url, nil)
+			if err != nil {
+				log.Println("http request error:", err)
+				continue
+			}
+			if offset > 0 {
+				req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+			}
+			client := &http.Client{}
+			resp, err := client.Do(req)
 			if err != nil {
 				log.Println("http get error:", err)
 				continue
 			}
-			if resp.StatusCode != 200 {
-				log.Printf("unexpected http status: %s", resp.Status)
-				resp.Body.Close()
-				continue
+			defer resp.Body.Close()
+
+			// Handle server response
+			if offset > 0 && resp.StatusCode == 206 {
+				fmt.Printf("Resuming download at byte %d...\n", offset)
+				f, err := os.OpenFile(partFn, os.O_WRONLY|os.O_APPEND, 0644)
+				if err != nil {
+					log.Println("Unable to open .part file for append:", err)
+					continue
+				}
+				_, err = io.Copy(f, resp.Body)
+				f.Close()
+				if err != nil {
+					log.Println("copy error:", err)
+					continue
+				}
+			} else if offset > 0 && resp.StatusCode == 200 {
+				fmt.Println("Warning: server does not support HTTP Range. Restarting download from the beginning.")
+				f, err := os.Create(partFn)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				_, err = io.Copy(f, resp.Body)
+				f.Close()
+				if err != nil {
+					log.Println("copy error:", err)
+					continue
+				}
+			} else {
+				// Fresh download
+				f, err := os.Create(partFn)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				_, err = io.Copy(f, resp.Body)
+				f.Close()
+				if err != nil {
+					log.Println("copy error:", err)
+					continue
+				}
 			}
 
-			fn := entry.Instance
-			fmt.Println("Try opening ", fn)
-			f, err := os.Create(fn)
+			// Rename .part to final name
+			err = os.Rename(partFn, fn)
 			if err != nil {
-				log.Println(err)
-				resp.Body.Close()
+				log.Println("rename error:", err)
 				continue
 			}
-
-			_, err = io.Copy(f, resp.Body)
-			resp.Body.Close()
-			f.Close()
-			if err != nil {
-				log.Println("copy error:", err)
-				continue
-			}
+			fmt.Printf("Download complete: %s\n", fn)
 			cancel()
 			return
 		}
@@ -95,4 +166,13 @@ func main() {
 	}
 
 	<-ctx.Done()
+}
+
+// fileExists returns true if the file exists and is not a directory.
+func fileExists(name string) bool {
+	fi, err := os.Stat(name)
+	if err != nil {
+		return false
+	}
+	return !fi.IsDir()
 }
