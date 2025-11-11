@@ -33,7 +33,14 @@ go build ./cmd/pop
 Notes
 
 - Les anciens fichiers `push/main.go` et `pop/main.go` ont été retirés du dépôt (leurs fonctionnalités ont été migrées sous `cmd/`).
-- TODO existants :
-	- [ ] Be able to push a directory.
-	- [ ] Be able to resume an interrupted download.
-	- [ ] Implement using multiple progress bar (par ex. `mpb`).
+## TODO
+
+- [ ] Be able to push a directory.
+- [ ] Be able to resume an interrupted download.
+	- Use a `.part` suffix for partial downloads.
+	- Resume only if the server supports HTTP Range requests; otherwise, restart from the beginning and warn the user.
+	- Add a `--force` option to overwrite existing files without confirmation.
+	- Do not handle checksums for now (see below).
+- [ ] Implement using multiple progress bar (e.g. `mpb`).
+- [ ] (Optional) Implement a mechanism to preallocate the final file size for downloads (file reservation).
+- [ ] (Optional) Add checksum/integrity verification after download.
