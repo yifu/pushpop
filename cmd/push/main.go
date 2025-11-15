@@ -13,8 +13,48 @@ import (
 	"syscall"
 	"time"
 
+	"sync"
+
 	"github.com/grandcat/zeroconf"
+	"github.com/yifu/pushpop/pkg/blake"
 )
+
+// --- BLAKE3 hash cache and synchronization ---
+type hashResult struct {
+	hash string
+	err  error
+}
+
+var (
+	hashCache = make(map[string]hashResult)
+	hashMu    sync.Mutex
+	hashCond  = make(map[string]*sync.Cond) // one condition per file
+) // getBlake3 computes or retrieves the BLAKE3 hash of a file with synchronization and caching.
+func getBlake3(path string) (string, error) {
+	hashMu.Lock()
+	if res, ok := hashCache[path]; ok {
+		hashMu.Unlock()
+		return res.hash, res.err
+	}
+	if c, ok := hashCond[path]; ok {
+		c.Wait()
+		res := hashCache[path]
+		hashMu.Unlock()
+		return res.hash, res.err
+	}
+	c := sync.NewCond(&hashMu)
+	hashCond[path] = c
+	hashMu.Unlock()
+
+	h, err := blake.CalcBlake3(path)
+
+	hashMu.Lock()
+	delete(hashCond, path)
+	hashCache[path] = hashResult{h, err}
+	c.Broadcast()
+	hashMu.Unlock()
+	return h, err
+}
 
 // Option A: simple HTTP server that serves the file's directory.
 // The server listens on ":0" to get a system-assigned available port,
@@ -57,6 +97,7 @@ func main() {
 	fmt.Sscanf(portStr, "%d", &portn)
 
 	server, err := zeroconf.Register(base, "_pushpop._tcp", "local.", portn, text, nil)
+
 	if err != nil {
 		ln.Close()
 		log.Fatal(err)
@@ -74,6 +115,17 @@ func main() {
 		}
 		// Otherwise, serve files from the directory
 		http.FileServer(http.Dir(dir)).ServeHTTP(w, r)
+	})
+
+	// Serve the BLAKE3 hash at /<filename>.blake3
+	mux.HandleFunc("/"+base+".blake3", func(w http.ResponseWriter, r *http.Request) {
+		hash, err := getBlake3(fn)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, "error: %v\n", err)
+			return
+		}
+		fmt.Fprintln(w, hash)
 	})
 
 	srv := &http.Server{Handler: mux}
