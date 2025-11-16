@@ -45,4 +45,14 @@ Notes
 - [ ] ~~(Optional) Implement a mechanism to preallocate the final file size for downloads (file reservation).~~
 - [x] (Optional) Add checksum/integrity verification after download (BLAKE3).
 - [ ] Add IP and username of the user downloading the file (when available) on the push side.
+- [ ] Add a TUI (Terminal User Interface) to manage file sharing:
+	- Allow the user to stop sharing a file manually.
+	- Display active downloads and connections.
+	- Blacklist users based on their IP address or username (when available).
+- [ ] Add daemon mode for push:
+	- Implement `--daemon` or `-d` flag to run push in background (not default).
+	- Create a control socket (e.g., `/tmp/pushpop.sock`) for daemon management.
+	- Implement `push --control` to attach a TUI to a running daemon.
+	- Implement `push --stop` to gracefully stop a running daemon.
+	- Implement `push --status` to display information about active daemons.
 
