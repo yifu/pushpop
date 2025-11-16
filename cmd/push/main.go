@@ -29,7 +29,9 @@ var (
 	hashCache = make(map[string]hashResult)
 	hashMu    sync.Mutex
 	hashCond  = make(map[string]*sync.Cond) // one condition per file
-) // getBlake3 computes or retrieves the BLAKE3 hash of a file with synchronization and caching.
+)
+
+// getBlake3 computes or retrieves the BLAKE3 hash of a file with synchronization and caching.
 func getBlake3(path string) (string, error) {
 	hashMu.Lock()
 	if res, ok := hashCache[path]; ok {
@@ -108,9 +110,25 @@ func main() {
 	mux := http.NewServeMux()
 	// Serve the file at the root: GET / -> file contents
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Extract client information
+		clientIP := r.RemoteAddr
+		// Try to get the real IP if behind a proxy
+		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+			clientIP = forwarded
+		}
+		// Extract username from custom header
+		username := r.Header.Get("X-PushPop-User")
+		if username == "" {
+			username = "unknown"
+		}
+
+		// Log download start
+		fmt.Printf("📥 Download started by: %s from %s\n", username, clientIP)
+
 		// If root is requested, serve the file directly
 		if r.URL.Path == "/" {
 			http.ServeFile(w, r, fn)
+			fmt.Printf("✅ Download completed by: %s from %s\n", username, clientIP)
 			return
 		}
 		// Otherwise, serve files from the directory
@@ -119,6 +137,18 @@ func main() {
 
 	// Serve the BLAKE3 hash at /<filename>.blake3
 	mux.HandleFunc("/"+base+".blake3", func(w http.ResponseWriter, r *http.Request) {
+		// Extract client information
+		clientIP := r.RemoteAddr
+		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+			clientIP = forwarded
+		}
+		username := r.Header.Get("X-PushPop-User")
+		if username == "" {
+			username = "unknown"
+		}
+
+		fmt.Printf("🔐 BLAKE3 hash requested by: %s from %s\n", username, clientIP)
+
 		hash, err := getBlake3(fn)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
