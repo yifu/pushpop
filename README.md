@@ -44,4 +44,5 @@ Notes
 - [ ] Implement using multiple progress bar (e.g. `mpb`).
 - [ ] ~~(Optional) Implement a mechanism to preallocate the final file size for downloads (file reservation).~~
 - [x] (Optional) Add checksum/integrity verification after download (BLAKE3).
+- [ ] Add IP and username of the user downloading the file (when available) on the push side.
 
