@@ -33,6 +33,7 @@ go build ./cmd/pop
 Notes
 
 - Les anciens fichiers `push/main.go` et `pop/main.go` ont été retirés du dépôt (leurs fonctionnalités ont été migrées sous `cmd/`).
+
 ## TODO
 
 - [ ] Be able to push a directory.
@@ -57,4 +58,7 @@ Notes
 	- Implement `push --control` to attach a TUI to a running daemon.
 	- Implement `push --stop` to gracefully stop a running daemon.
 	- Implement `push --status` to display information about active daemons.
+- [ ] Display the user requesting a BLAKE3 in the push output.
+- [ ] Fix display of the effective user in push (when pop is run from another machine, push should show the real user, not just the requested name).
+- [ ] Update push to use Bubble Tea (TUI on the server side).
 
