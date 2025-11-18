@@ -170,31 +170,37 @@ func main() {
 				}
 			}
 
-			// Start Bubble Tea in background
+			// Start download in background
 			go func() {
-				if _, err := p.Run(); err != nil {
-					log.Println("Error running progress UI:", err)
+				// Create progress writer wrapper
+				pw := &progressWriter{
+					written: offset,
+					program: p,
 				}
+
+				// Copy with progress tracking
+				multiWriter := io.MultiWriter(f, pw)
+				_, copyErr := io.Copy(multiWriter, resp.Body)
+				f.Close()
+
+				// Signal completion
+				p.Send(doneMsg{err: copyErr})
 			}()
 
-			// Create progress writer wrapper
-			pw := &progressWriter{
-				written: offset,
-				program: p,
+			// Run Bubble Tea UI in main thread (blocks until done)
+			finalModel, err := p.Run()
+			if err != nil {
+				log.Println("Error running progress UI:", err)
+				cancel()
+				return
 			}
 
-			// Copy with progress tracking
-			multiWriter := io.MultiWriter(f, pw)
-			_, err = io.Copy(multiWriter, resp.Body)
-			f.Close()
-
-			// Signal completion
-			p.Send(doneMsg{err: err})
-			time.Sleep(100 * time.Millisecond) // Give UI time to update
-
-			if err != nil {
-				log.Println("copy error:", err)
-				continue
+			// Check if download had errors
+			dm := finalModel.(downloadModel)
+			if dm.err != nil {
+				log.Println("copy error:", dm.err)
+				cancel()
+				return
 			}
 
 			// Rename .part to final name
@@ -298,6 +304,7 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" || msg.String() == "q" {
+			m.err = fmt.Errorf("download aborted by user")
 			return m, tea.Quit
 		}
 
@@ -312,6 +319,7 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case progress.FrameMsg:
 		progressModel, cmd := m.progress.Update(msg)
 		m.progress = progressModel.(progress.Model)
+		log.Println("FrameMsg update")
 		return m, cmd
 
 	case speedTickMsg:
