@@ -21,6 +21,16 @@ import (
 )
 
 func main() {
+
+	if len(os.Getenv("DEBUG")) > 0 {
+		f, err := tea.LogToFile("debug.log", "debug")
+		if err != nil {
+			fmt.Println("fatal:", err)
+			os.Exit(1)
+		}
+		defer f.Close()
+	}
+
 	// Parse flags: --force
 	force := flag.Bool("force", false, "overwrite existing file without confirmation")
 	flag.Parse()
@@ -275,9 +285,7 @@ type doneMsg struct {
 type speedTickMsg time.Time
 
 func (m downloadModel) Init() tea.Cmd {
-	return tea.Batch(
-		tickSpeed(),
-	)
+	return tickSpeed()
 }
 
 func tickSpeed() tea.Cmd {
@@ -295,12 +303,11 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case progressMsg:
 		m.downloadedBytes = msg.bytes
-		var cmd tea.Cmd
 		if m.totalBytes > 0 {
 			percent := float64(m.downloadedBytes) / float64(m.totalBytes)
-			cmd = m.progress.SetPercent(percent)
+			return m, m.progress.SetPercent(percent)
 		}
-		return m, cmd
+		return m, nil
 
 	case progress.FrameMsg:
 		progressModel, cmd := m.progress.Update(msg)
