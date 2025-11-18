@@ -61,4 +61,6 @@ Notes
 - [ ] Display the user requesting a BLAKE3 in the push output.
 - [ ] Fix display of the effective user in push (when pop is run from another machine, push should show the real user, not just the requested name).
 - [ ] Update push to use Bubble Tea (TUI on the server side).
+ - [ ] Add a progress bar for downloading the BLAKE3 verification file.
+ - [ ] Add a progress bar for computing the BLAKE3 checksum (file parsing).
 
