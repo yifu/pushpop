@@ -132,23 +132,6 @@ func main() {
 		}
 	}
 
-	// Prepare HTTP request (with Range if resuming)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		log.Fatalln("http request error:", err)
-	}
-	if offset > 0 {
-		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
-	}
-	// Send username in custom header for server-side logging
-	req.Header.Set("X-PushPop-User", username)
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatalln("http get error:", err)
-	}
-	defer resp.Body.Close()
-
 	// Get total size for progress bar
 	totalSize := resp.ContentLength
 	if offset > 0 && resp.StatusCode == 206 {
@@ -170,47 +153,6 @@ func main() {
 	}
 
 	p := tea.NewProgram(model)
-
-	// Handle server response
-	var f *os.File
-	if offset > 0 && resp.StatusCode == 206 {
-		fmt.Printf("Resuming download at byte %d...\n", offset)
-		f, err = os.OpenFile(partFn, os.O_WRONLY|os.O_APPEND, 0644)
-		if err != nil {
-			log.Fatalln("Unable to open .part file for append:", err)
-		}
-	} else if offset > 0 && resp.StatusCode == 200 {
-		fmt.Println("Warning: server does not support HTTP Range. Restarting download from the beginning.")
-		f, err = os.Create(partFn)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		offset = 0
-		model.downloadedBytes = 0
-	} else {
-		// Fresh download
-		f, err = os.Create(partFn)
-		if err != nil {
-			log.Fatalln(err)
-		}
-	}
-
-	// Start download in background
-	go func() {
-		// Create progress writer wrapper
-		pw := &progressWriter{
-			written: offset,
-			program: p,
-		}
-
-		// Copy with progress tracking
-		multiWriter := io.MultiWriter(f, pw)
-		_, copyErr := io.Copy(multiWriter, resp.Body)
-		f.Close()
-
-		// Signal completion
-		p.Send(doneMsg{err: copyErr})
-	}()
 
 	// Run Bubble Tea UI in main thread (blocks until done)
 	finalModel, err := p.Run()
@@ -286,15 +228,6 @@ type downloadModel struct {
 	lastDownloadedBytes int64
 }
 
-// Messages
-type progressMsg struct {
-	bytes int64
-}
-
-type doneMsg struct {
-	err error
-}
-
 type speedTickMsg time.Time
 
 func (m downloadModel) Init() tea.Cmd {
@@ -307,13 +240,22 @@ type requestURLReceivedMsg []byte
 type requestURLDoneMsg struct{}
 type requestURLGetBodyMsg struct{ Body io.ReadCloser }
 
-type panicMsg error
-
-func requestURL(URL string) tea.Cmd {
+func requestURL(downloadModel downloadModel, URL string) tea.Cmd {
 	return func() tea.Msg {
-		resp, err := http.Get(URL)
+		// Prepare HTTP request (with Range if resuming)
+		req, err := http.NewRequest("GET", downloadModel.URL, nil)
 		if err != nil {
-			return requestURLPanicMsg(err)
+			log.Fatalln("http request error:", err)
+		}
+		if offset > 0 {
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+		}
+		// Send username in custom header for server-side logging
+		req.Header.Set("X-PushPop-User", username)
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Fatalln("http get error:", err)
 		}
 
 		return requestURLGetBodyMsg{resp.Body}
@@ -364,14 +306,16 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case requestURLReceivedMsg:
 		f, err := os.OpenFile(m.partFilename, os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
-			return m, func() tea.Msg { return panicMsg(err) }
+			m.err = err
+			return m, tea.Quit
 		}
 		defer f.Close()
 
 		chunk := []byte(msg)
 		_, err = f.Write(chunk)
 		if err != nil {
-			return m, func() tea.Msg { return panicMsg(err) }
+			m.err = err
+			return m, tea.Quit
 		}
 
 		var cmds []tea.Cmd
@@ -395,9 +339,6 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case requestURLPanicMsg:
-		return m, func() tea.Msg { return panicMsg(msg) }
-
-	case panicMsg:
 		m.err = msg.(error)
 		return m, tea.Quit
 
@@ -422,11 +363,6 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		return m, tickSpeed()
-
-	case doneMsg:
-		m.done = true
-		m.err = msg.err
-		return m, tea.Quit
 	}
 
 	return m, nil
@@ -499,17 +435,4 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
 	}
 	return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
-}
-
-// progressWriter tracks writes and sends progress updates
-type progressWriter struct {
-	written int64
-	program *tea.Program
-}
-
-func (pw *progressWriter) Write(p []byte) (int, error) {
-	n := len(p)
-	pw.written += int64(n)
-	pw.program.Send(progressMsg{bytes: pw.written})
-	return n, nil
 }
