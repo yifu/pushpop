@@ -132,21 +132,16 @@ func main() {
 		}
 	}
 
-	// Get total size for progress bar
-	totalSize := resp.ContentLength
-	if offset > 0 && resp.StatusCode == 206 {
-		totalSize += offset // Add the already downloaded part
-	}
-
 	// Create Bubble Tea model for progress
 	prog := progress.New(progress.WithDefaultGradient())
 	prog.Width = 50
 
 	model := downloadModel{
+		username:            username,
 		filename:            fn,
 		partFilename:        partFn,
+		URL:                 url,
 		progress:            prog,
-		totalBytes:          totalSize,
 		downloadedBytes:     offset,
 		lastUpdate:          time.Now(),
 		lastDownloadedBytes: offset,
@@ -212,8 +207,16 @@ func fileExists(name string) bool {
 	return !fi.IsDir()
 }
 
+func createOrOpenPartFile(partFn string) (*os.File, error) {
+	if fileExists(partFn) {
+		return os.OpenFile(partFn, os.O_WRONLY|os.O_APPEND, 0644)
+	}
+	return os.Create(partFn)
+}
+
 // Bubble Tea model for download progress
 type downloadModel struct {
+	username            string
 	filename            string
 	partFilename        string
 	URL                 string
@@ -232,33 +235,33 @@ type speedTickMsg time.Time
 
 func (m downloadModel) Init() tea.Cmd {
 
-	return tea.Batch(tickSpeed(), requestURL(m.URL))
+	return tea.Batch(tickSpeed(), requestURL(m))
 }
 
 type requestURLPanicMsg error
 type requestURLReceivedMsg []byte
 type requestURLDoneMsg struct{}
-type requestURLGetBodyMsg struct{ Body io.ReadCloser }
+type requestURLGetBodyMsg struct{ resp *http.Response }
 
-func requestURL(downloadModel downloadModel, URL string) tea.Cmd {
+func requestURL(downloadModel downloadModel) tea.Cmd {
 	return func() tea.Msg {
 		// Prepare HTTP request (with Range if resuming)
 		req, err := http.NewRequest("GET", downloadModel.URL, nil)
 		if err != nil {
 			log.Fatalln("http request error:", err)
 		}
-		if offset > 0 {
-			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+		if downloadModel.downloadedBytes > 0 {
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", downloadModel.downloadedBytes))
 		}
 		// Send username in custom header for server-side logging
-		req.Header.Set("X-PushPop-User", username)
+		req.Header.Set("X-PushPop-User", downloadModel.username)
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err != nil {
 			log.Fatalln("http get error:", err)
 		}
 
-		return requestURLGetBodyMsg{resp.Body}
+		return requestURLGetBodyMsg{resp}
 	}
 }
 
@@ -300,11 +303,18 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case requestURLGetBodyMsg:
-		m.Body = msg.Body
+		m.Body = msg.resp.Body
+
+		// Get total size for progress bar
+		m.totalBytes = msg.resp.ContentLength
+		if m.downloadedBytes > 0 && msg.resp.StatusCode == http.StatusPartialContent {
+			m.totalBytes += m.downloadedBytes // Add the already downloaded part
+		}
+
 		return m, readChunk(m.Body)
 
 	case requestURLReceivedMsg:
-		f, err := os.OpenFile(m.partFilename, os.O_WRONLY|os.O_APPEND, 0644)
+		f, err := createOrOpenPartFile(m.partFilename)
 		if err != nil {
 			m.err = err
 			return m, tea.Quit
@@ -320,14 +330,14 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		var cmds []tea.Cmd
 
-		m.downloadedBytes = int64(len(chunk))
+		m.downloadedBytes += int64(len(chunk))
 		if m.totalBytes > 0 {
 			percent := float64(m.downloadedBytes) / float64(m.totalBytes)
 			cmd := m.progress.SetPercent(percent)
 			cmds = append(cmds, cmd)
 		}
 
-		cmds = append(cmds, func() tea.Msg { return readChunk(m.Body) })
+		cmds = append(cmds, readChunk(m.Body))
 
 		return m, tea.Batch(cmds...)
 
