@@ -161,6 +161,7 @@ func main() {
 
 	model := downloadModel{
 		filename:            fn,
+		partFilename:        partFn,
 		progress:            prog,
 		totalBytes:          totalSize,
 		downloadedBytes:     offset,
@@ -272,6 +273,9 @@ func fileExists(name string) bool {
 // Bubble Tea model for download progress
 type downloadModel struct {
 	filename            string
+	partFilename        string
+	URL                 string
+	Body                io.ReadCloser
 	progress            progress.Model
 	totalBytes          int64
 	downloadedBytes     int64
@@ -294,13 +298,55 @@ type doneMsg struct {
 type speedTickMsg time.Time
 
 func (m downloadModel) Init() tea.Cmd {
-	return tickSpeed()
+
+	return tea.Batch(tickSpeed(), requestURL(m.URL))
+}
+
+type requestURLPanicMsg error
+type requestURLReceivedMsg []byte
+type requestURLDoneMsg struct{}
+type requestURLGetBodyMsg struct{ Body io.ReadCloser }
+
+type panicMsg error
+
+func requestURL(URL string) tea.Cmd {
+	return func() tea.Msg {
+		resp, err := http.Get(URL)
+		if err != nil {
+			return requestURLPanicMsg(err)
+		}
+
+		return requestURLGetBodyMsg{resp.Body}
+	}
 }
 
 func tickSpeed() tea.Cmd {
 	return tea.Tick(time.Millisecond*100, func(t time.Time) tea.Msg {
 		return speedTickMsg(t)
 	})
+}
+
+func readChunk(body io.ReadCloser) tea.Cmd {
+	return func() tea.Msg {
+		buf := make([]byte, 4096)
+		n, err := body.Read(buf)
+
+		if n > 0 {
+			chunk := make([]byte, n)
+			copy(chunk, buf[:n])
+			return requestURLReceivedMsg(chunk)
+		}
+
+		if err == io.EOF {
+			return requestURLDoneMsg{}
+		}
+
+		if err != nil {
+			return requestURLPanicMsg(err)
+		}
+
+		return requestURLDoneMsg{}
+	}
 }
 
 func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -311,18 +357,53 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-	case progressMsg:
-		m.downloadedBytes = msg.bytes
+	case requestURLGetBodyMsg:
+		m.Body = msg.Body
+		return m, readChunk(m.Body)
+
+	case requestURLReceivedMsg:
+		f, err := os.OpenFile(m.partFilename, os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			return m, func() tea.Msg { return panicMsg(err) }
+		}
+		defer f.Close()
+
+		chunk := []byte(msg)
+		_, err = f.Write(chunk)
+		if err != nil {
+			return m, func() tea.Msg { return panicMsg(err) }
+		}
+
+		var cmds []tea.Cmd
+
+		m.downloadedBytes = int64(len(chunk))
 		if m.totalBytes > 0 {
 			percent := float64(m.downloadedBytes) / float64(m.totalBytes)
-			return m, m.progress.SetPercent(percent)
+			cmd := m.progress.SetPercent(percent)
+			cmds = append(cmds, cmd)
+		}
+
+		cmds = append(cmds, func() tea.Msg { return readChunk(m.Body) })
+
+		return m, tea.Batch(cmds...)
+
+	case requestURLDoneMsg:
+		if m.Body != nil {
+			m.Body.Close()
+			m.Body = nil
 		}
 		return m, nil
+
+	case requestURLPanicMsg:
+		return m, func() tea.Msg { return panicMsg(msg) }
+
+	case panicMsg:
+		m.err = msg.(error)
+		return m, tea.Quit
 
 	case progress.FrameMsg:
 		progressModel, cmd := m.progress.Update(msg)
 		m.progress = progressModel.(progress.Model)
-		log.Println("FrameMsg update")
 		return m, cmd
 
 	case speedTickMsg:
