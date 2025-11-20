@@ -63,4 +63,8 @@ Notes
 - [ ] Update push to use Bubble Tea (TUI on the server side).
  - [ ] Add a progress bar for downloading the BLAKE3 verification file.
  - [ ] Add a progress bar for computing the BLAKE3 checksum (file parsing).
+- [ ] It should be possible to bind to a list of interfaces on the push command. And on the pop command?
+- [ ] Remove blake package if not used anymore.
+- [ ] Pop: Move the Init()/Update()/View() functions into a tui.go file.
+- [ ] Pop: adapt the ui to the current window size.
 
