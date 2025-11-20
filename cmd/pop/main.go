@@ -16,8 +16,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/grandcat/zeroconf"
-	"github.com/yifu/pushpop/pkg/blake"
 	"github.com/yifu/pushpop/pkg/discovery"
+	"github.com/zeebo/blake3"
 )
 
 func main() {
@@ -158,44 +158,10 @@ func main() {
 	// Check if download had errors
 	dm := finalModel.(downloadModel)
 	if dm.err != nil {
-		log.Fatalln("download error:", dm.err)
+		log.Fatalln("Error:", dm.err)
 	}
 
-	// Rename .part to final name
-	err = os.Rename(partFn, fn)
-	if err != nil {
-		log.Fatalln("rename error:", err)
-	}
-	fmt.Printf("Download complete: %s\n", fn)
-
-	// BLAKE3 integrity verification
-	blake3URL := url + fn + ".blake3"
-	respHash, err := http.Get(blake3URL)
-	if err != nil {
-		log.Fatalf("Unable to retrieve BLAKE3 hash: %v", err)
-	}
-	defer respHash.Body.Close()
-	remoteHashBytes, err := io.ReadAll(respHash.Body)
-	if err != nil {
-		log.Fatalf("Error reading remote hash: %v", err)
-	}
-	remoteHash := strings.TrimSpace(string(remoteHashBytes))
-
-	// Compute local hash
-	localHash, err := blake.CalcBlake3(fn)
-	if err != nil {
-		log.Fatalf("Error computing local hash: %v", err)
-	}
-	if localHash != remoteHash {
-		log.Printf("ERROR: file integrity check failed (BLAKE3 mismatch)\nexpected: %s\nobtained: %s", remoteHash, localHash)
-		// Delete corrupted file
-		err := os.Remove(fn)
-		if err != nil {
-			log.Printf("Unable to delete corrupted file: %v", err)
-		}
-		os.Exit(1)
-	}
-	fmt.Println("BLAKE3 integrity check OK.")
+	fmt.Println("✓ Download complete and verified:", fn)
 }
 
 // fileExists returns true if the file exists and is not a directory.
@@ -214,6 +180,107 @@ func createOrOpenPartFile(partFn string) (*os.File, error) {
 	return os.Create(partFn)
 }
 
+// New message types for post-download workflow
+type fileRenamedMsg struct{ err error }
+type blake3FetchedMsg struct {
+	remoteHash string
+	err        error
+}
+type blake3StartMsg struct {
+	file       *os.File
+	totalBytes int64
+	remoteHash string
+}
+type blake3ChunkReadMsg struct {
+	chunk []byte
+	err   error
+}
+type blake3ComputedMsg struct {
+	localHash  string
+	remoteHash string
+	err        error
+}
+
+// Commands for post-download workflow
+func generateRenameFileCmd(partFn, finalFn string) tea.Cmd {
+	return func() tea.Msg {
+		err := os.Rename(partFn, finalFn)
+		return fileRenamedMsg{err: err}
+	}
+}
+
+func generateFetchBlake3Cmd(url, filename string) tea.Cmd {
+	return func() tea.Msg {
+		blake3URL := url + filename + ".blake3"
+		resp, err := http.Get(blake3URL)
+		if err != nil {
+			return blake3FetchedMsg{err: err}
+		}
+		defer resp.Body.Close()
+
+		// Limit read to 1KB to protect against malicious server
+		limitedReader := io.LimitReader(resp.Body, 1024)
+		remoteHashBytes, err := io.ReadAll(limitedReader)
+		if err != nil {
+			return blake3FetchedMsg{err: err}
+		}
+
+		remoteHash := strings.TrimSpace(string(remoteHashBytes))
+		// Validate hash format (should be 64 hex chars)
+		if len(remoteHash) != 64 {
+			return blake3FetchedMsg{err: fmt.Errorf("invalid BLAKE3 hash format (expected 64 chars, got %d)", len(remoteHash))}
+		}
+
+		return blake3FetchedMsg{remoteHash: remoteHash}
+	}
+}
+
+func generateComputeBlake3Cmd(filename, remoteHash string) tea.Cmd {
+	return func() tea.Msg {
+		// Get file size for progress
+		fi, err := os.Stat(filename)
+		if err != nil {
+			return blake3ComputedMsg{err: err}
+		}
+		totalBytes := fi.Size()
+
+		// Open file
+		file, err := os.Open(filename)
+		if err != nil {
+			return blake3ComputedMsg{err: err}
+		}
+
+		return blake3StartMsg{
+			file:       file,
+			totalBytes: totalBytes,
+			remoteHash: remoteHash,
+		}
+	}
+}
+
+func generateReadBlake3ChunkCmd(file *os.File) tea.Cmd {
+	return func() tea.Msg {
+		buf := make([]byte, 32*1024) // 32KB chunks
+		n, err := file.Read(buf)
+
+		if n > 0 {
+			chunk := make([]byte, n)
+			copy(chunk, buf[:n])
+			return blake3ChunkReadMsg{chunk: chunk}
+		}
+
+		if err == io.EOF {
+			return blake3ChunkReadMsg{err: io.EOF}
+		}
+
+		if err != nil {
+			return blake3ChunkReadMsg{err: err}
+		}
+
+		return blake3ChunkReadMsg{err: io.EOF}
+	}
+}
+
 // Bubble Tea model for download progress
 type downloadModel struct {
 	username            string
@@ -229,12 +296,21 @@ type downloadModel struct {
 	speed               float64 // bytes per second
 	lastUpdate          time.Time
 	lastDownloadedBytes int64
+	nextPercent         float64
+
+	// Blake3 verification fields
+	blake3Progress   progress.Model
+	blake3File       *os.File
+	blake3Hasher     *blake3.Hasher
+	blake3TotalBytes int64
+	blake3ReadBytes  int64
+	blake3RemoteHash string
+	verifying        bool
 }
 
 type speedTickMsg time.Time
 
 func (m downloadModel) Init() tea.Cmd {
-
 	return tea.Batch(tickSpeed(), requestURL(m))
 }
 
@@ -328,51 +404,147 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-		var cmds []tea.Cmd
-
 		m.downloadedBytes += int64(len(chunk))
 		if m.totalBytes > 0 {
-			percent := float64(m.downloadedBytes) / float64(m.totalBytes)
-			cmd := m.progress.SetPercent(percent)
-			cmds = append(cmds, cmd)
+			m.nextPercent = float64(m.downloadedBytes) / float64(m.totalBytes)
 		}
 
-		cmds = append(cmds, readChunk(m.Body))
-
-		return m, tea.Batch(cmds...)
+		return m, readChunk(m.Body)
 
 	case requestURLDoneMsg:
 		if m.Body != nil {
 			m.Body.Close()
 			m.Body = nil
 		}
-		return m, nil
+		// Download complete, start post-download workflow
+		m.done = true
+		return m, generateRenameFileCmd(m.partFilename, m.filename)
+
+	case fileRenamedMsg:
+		if msg.err != nil {
+			m.err = fmt.Errorf("rename error: %w", msg.err)
+			return m, tea.Quit
+		}
+		// File renamed successfully, now fetch BLAKE3 hash
+		return m, generateFetchBlake3Cmd(m.URL, m.filename)
+
+	case blake3FetchedMsg:
+		if msg.err != nil {
+			m.err = fmt.Errorf("unable to retrieve BLAKE3 hash: %w", msg.err)
+			return m, tea.Quit
+		}
+		// Hash fetched, start computing local hash
+		return m, generateComputeBlake3Cmd(m.filename, msg.remoteHash)
+
+	case blake3StartMsg:
+		if msg.file == nil {
+			m.err = fmt.Errorf("failed to open file for hashing")
+			return m, tea.Quit
+		}
+		// Initialize BLAKE3 computation
+		m.verifying = true
+		m.blake3File = msg.file
+		m.blake3Hasher = blake3.New()
+		m.blake3TotalBytes = msg.totalBytes
+		m.blake3ReadBytes = 0
+		m.blake3RemoteHash = msg.remoteHash
+
+		// Start reading first chunk
+		return m, generateReadBlake3ChunkCmd(m.blake3File)
+
+	case blake3ChunkReadMsg:
+		if msg.err != nil && msg.err != io.EOF {
+			// Real error (not EOF)
+			if m.blake3File != nil {
+				m.blake3File.Close()
+			}
+			m.err = fmt.Errorf("error reading file for hash: %w", msg.err)
+			return m, tea.Quit
+		}
+
+		if len(msg.chunk) > 0 {
+			// Process chunk
+			m.blake3Hasher.Write(msg.chunk)
+			m.blake3ReadBytes += int64(len(msg.chunk))
+
+			// Update progress
+			if m.blake3TotalBytes > 0 {
+				percent := float64(m.blake3ReadBytes) / float64(m.blake3TotalBytes)
+				cmd := m.blake3Progress.SetPercent(percent)
+				// Continue reading next chunk
+				return m, tea.Batch(cmd, generateReadBlake3ChunkCmd(m.blake3File))
+			}
+
+			// Continue reading
+			return m, generateReadBlake3ChunkCmd(m.blake3File)
+		}
+
+		// EOF reached, finalize hash
+		if m.blake3File != nil {
+			m.blake3File.Close()
+			m.blake3File = nil
+		}
+
+		localHash := fmt.Sprintf("%x", m.blake3Hasher.Sum(nil))
+		return m, func() tea.Msg {
+			return blake3ComputedMsg{
+				localHash:  localHash,
+				remoteHash: m.blake3RemoteHash,
+			}
+		}
+
+	case blake3ComputedMsg:
+		m.verifying = false
+		if msg.err != nil {
+			m.err = fmt.Errorf("error computing local hash: %w", msg.err)
+			return m, tea.Quit
+		}
+		// Compare hashes
+		if msg.localHash != msg.remoteHash {
+			m.err = fmt.Errorf("file integrity check failed (BLAKE3 mismatch)\nexpected: %s\nobtained: %s", msg.remoteHash, msg.localHash)
+			// Delete corrupted file
+			os.Remove(m.filename)
+			return m, tea.Quit
+		}
+		// All good!
+		return m, tea.Quit
 
 	case requestURLPanicMsg:
 		m.err = msg.(error)
 		return m, tea.Quit
 
 	case progress.FrameMsg:
+		if m.verifying {
+			// Update BLAKE3 progress bar
+			progressModel, cmd := m.blake3Progress.Update(msg)
+			m.blake3Progress = progressModel.(progress.Model)
+			return m, cmd
+		}
+		// Update download progress bar
 		progressModel, cmd := m.progress.Update(msg)
 		m.progress = progressModel.(progress.Model)
 		return m, cmd
 
 	case speedTickMsg:
+		var cmds []tea.Cmd
+
 		now := time.Time(msg)
-		if !m.lastUpdate.IsZero() {
+		if !m.lastUpdate.IsZero() && !m.done {
 			elapsed := now.Sub(m.lastUpdate).Seconds()
 			if elapsed > 0 {
 				bytesDiff := m.downloadedBytes - m.lastDownloadedBytes
 				m.speed = float64(bytesDiff) / elapsed
+				cmd := m.progress.SetPercent(m.nextPercent)
+				cmds = append(cmds, cmd)
 			}
 		}
 		m.lastUpdate = now
 		m.lastDownloadedBytes = m.downloadedBytes
 
-		if m.done {
-			return m, tea.Quit
+		if !m.verifying && !m.done {
+			cmds = append(cmds, tickSpeed())
 		}
-		return m, tickSpeed()
+		return m, tea.Batch(cmds...)
 	}
 
 	return m, nil
@@ -385,10 +557,29 @@ func (m downloadModel) View() string {
 			Render(fmt.Sprintf("✗ Error: %v\n", m.err))
 	}
 
-	if m.done {
+	// If verifying BLAKE3
+	if m.verifying {
+		title := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("214")).
+			Render("🔐 Verifying BLAKE3 integrity...")
+
+		progressBar := m.blake3Progress.View()
+
+		verified := formatBytes(m.blake3ReadBytes)
+		total := formatBytes(m.blake3TotalBytes)
+		info := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Render(fmt.Sprintf("%s / %s", verified, total))
+
+		return fmt.Sprintf("\n%s\n%s\n%s\n", title, progressBar, info)
+	}
+
+	// If download complete but not yet verified
+	if m.done && !m.verifying {
 		return lipgloss.NewStyle().
 			Foreground(lipgloss.Color("42")).
-			Render(fmt.Sprintf("✓ Downloaded: %s\n", m.filename))
+			Render(fmt.Sprintf("✓ Download complete, verifying...\n"))
 	}
 
 	progressBar := m.progress.View()
