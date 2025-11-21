@@ -145,6 +145,7 @@ func main() {
 		downloadedBytes:     offset,
 		lastUpdate:          time.Now(),
 		lastDownloadedBytes: offset,
+		blake3Progress:      progress.New(progress.WithDefaultGradient()),
 	}
 
 	p := tea.NewProgram(model)
@@ -467,15 +468,12 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.blake3Hasher.Write(msg.chunk)
 			m.blake3ReadBytes += int64(len(msg.chunk))
 
-			// Update progress
+			// Update progress (store target percent; animation triggered by speedTickMsg)
 			if m.blake3TotalBytes > 0 {
-				percent := float64(m.blake3ReadBytes) / float64(m.blake3TotalBytes)
-				cmd := m.blake3Progress.SetPercent(percent)
-				// Continue reading next chunk
-				return m, tea.Batch(cmd, generateReadBlake3ChunkCmd(m.blake3File))
+				m.nextPercent = float64(m.blake3ReadBytes) / float64(m.blake3TotalBytes)
 			}
 
-			// Continue reading
+			// Continue reading next chunk
 			return m, generateReadBlake3ChunkCmd(m.blake3File)
 		}
 
@@ -529,19 +527,30 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmds []tea.Cmd
 
 		now := time.Time(msg)
-		if !m.lastUpdate.IsZero() && !m.done {
-			elapsed := now.Sub(m.lastUpdate).Seconds()
-			if elapsed > 0 {
-				bytesDiff := m.downloadedBytes - m.lastDownloadedBytes
-				m.speed = float64(bytesDiff) / elapsed
-				cmd := m.progress.SetPercent(m.nextPercent)
-				cmds = append(cmds, cmd)
+
+		if !m.lastUpdate.IsZero() {
+			if !m.verifying && !m.done {
+				// Download phase: compute speed and drive download progress bar
+				elapsed := now.Sub(m.lastUpdate).Seconds()
+				if elapsed > 0 {
+					bytesDiff := m.downloadedBytes - m.lastDownloadedBytes
+					m.speed = float64(bytesDiff) / elapsed
+				}
+				cmds = append(cmds, m.progress.SetPercent(m.nextPercent))
+			} else if m.verifying {
+				// Verifying phase: drive BLAKE3 progress bar
+				cmds = append(cmds, m.blake3Progress.SetPercent(m.nextPercent))
 			}
 		}
-		m.lastUpdate = now
-		m.lastDownloadedBytes = m.downloadedBytes
 
+		// Update download counters only during download
 		if !m.verifying && !m.done {
+			m.lastUpdate = now
+			m.lastDownloadedBytes = m.downloadedBytes
+		}
+
+		// Keep ticking during verifying or download
+		if m.verifying || !m.done {
 			cmds = append(cmds, tickSpeed())
 		}
 		return m, tea.Batch(cmds...)
