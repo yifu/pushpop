@@ -1,63 +1,63 @@
 # pushpop
 Easily send files from one computer to another.
 
-Repository layout (nouvelle structure idiomatique Go)
+Repository layout (new idiomatic Go structure)
 
-- `cmd/push` : binaire `push` qui partage un fichier via TCP + mDNS (zeroconf).
-- `cmd/pop`  : binaire `pop` qui découvre une annonce mDNS et télécharge le fichier.
-- `pkg/discovery` : helpers pour la découverte mDNS (extraction du `user` et correspondance d'IP).
-- `pkg/transfer`  : logique de transfert (acceptation de connexion, envoi de fichier, barre de progression).
+- `cmd/push`: `push` binary that shares a file via TCP + mDNS (zeroconf).
+- `cmd/pop`: `pop` binary that discovers an mDNS announcement and downloads the file.
+- `pkg/discovery`: helpers for mDNS discovery (extracting the `user` and matching IP).
+- `pkg/transfer`: transfer logic (accepting connections, sending files, progress bar).
 
-Utilisation rapide
+Quick Usage
 
-1) Construire :
+1) Build:
 
 ```bash
 go build ./cmd/push
 go build ./cmd/pop
 ```
 
-2) Envoyer un fichier depuis la machine A :
+2) Send a file from machine A:
 
 ```bash
-./cmd/push/push /chemin/vers/fichier
+./cmd/push/push /path/to/file
 ```
 
-3) Sur la machine B, recevoir le fichier (optionnellement fournir le nom d'utilisateur) :
+3) On machine B, receive the file (optionally provide the username):
 
 ```bash
 ./cmd/pop/pop <username>
-# ou sans argument il utilise la variable d'environnement USER
+# or without argument it uses the USER environment variable
 ```
 
 Notes
 
-- Les anciens fichiers `push/main.go` et `pop/main.go` ont été retirés du dépôt (leurs fonctionnalités ont été migrées sous `cmd/`).
+- The old `push/main.go` and `pop/main.go` files have been removed from the repository (their functionalities have been migrated under `cmd/`).
 
 ## TODO
 
 - [ ] Be able to push a directory.
 - [x] Be able to resume an interrupted download.
-	- Use a `.part` suffix for partial downloads.
-	- Resume only if the server supports HTTP Range requests; otherwise, restart from the beginning and warn the user.
-	- Add a `--force` option to overwrite existing files without confirmation.
-	- ~~Do not handle checksums for now (see below).~~
-- [ ] Implement using multiple progress bar (e.g. `mpb`).
+    - Use a `.part` suffix for partial downloads.
+    - Resume only if the server supports HTTP Range requests; otherwise, restart from the beginning and warn the user.
+    - Add a `--force` option to overwrite existing files without confirmation.
+    - ~~Do not handle checksums for now (see below).~~
+- [ ] Implement using multiple progress bars (e.g., `mpb`).
 - [ ] ~~(Optional) Implement a mechanism to preallocate the final file size for downloads (file reservation).~~
 - [x] (Optional) Add checksum/integrity verification after download (BLAKE3).
 - [x] Add IP and username of the user downloading the file (when available) on the push side.
-	- Client (`pop`) now sends the `X-PushPop-User` header.
-	- Server (`push`) logs start/end of downloads with IP & username, and hash requests.
+    - Client (`pop`) now sends the `X-PushPop-User` header.
+    - Server (`push`) logs start/end of downloads with IP & username, and hash requests.
 - [ ] Add a TUI (Terminal User Interface) to manage file sharing:
-	- Allow the user to stop sharing a file manually.
-	- Display active downloads and connections.
-	- Blacklist users based on their IP address or username (when available).
+    - Allow the user to stop sharing a file manually.
+    - Display active downloads and connections.
+    - Blacklist users based on their IP address or username (when available).
 - [ ] Add daemon mode for push:
-	- Implement `--daemon` or `-d` flag to run push in background (not default).
-	- Create a control socket (e.g., `/tmp/pushpop.sock`) for daemon management.
-	- Implement `push --control` to attach a TUI to a running daemon.
-	- Implement `push --stop` to gracefully stop a running daemon.
-	- Implement `push --status` to display information about active daemons.
+    - Implement `--daemon` or `-d` flag to run push in the background (not default).
+    - Create a control socket (e.g., `/tmp/pushpop.sock`) for daemon management.
+    - Implement `push --control` to attach a TUI to a running daemon.
+    - Implement `push --stop` to gracefully stop a running daemon.
+    - Implement `push --status` to display information about active daemons.
 - [ ] Display the user requesting a BLAKE3 in the push output.
 - [ ] Fix display of the effective user in push (when pop is run from another machine, push should show the real user, not just the requested name).
 - [ ] Update push to use Bubble Tea (TUI on the server side).
@@ -66,7 +66,7 @@ Notes
 - [ ] It should be possible to bind to a list of interfaces on the push command. And on the pop command?
 - [ ] Remove blake package if not used anymore.
 - [ ] Pop: Move the Init()/Update()/View() functions into a tui.go file.
-- [ ] Pop: adapt the ui to the current window size.
+- [ ] Pop: adapt the UI to the current window size.
 - [ ] Use socket unix when downloading on the same machine.
-- [ ] Provide multiple signature files: sha256/Blake3/etc.
+- [ ] Provide multiple signature files: sha256/Blake3/etc.
 
