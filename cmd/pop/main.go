@@ -106,7 +106,7 @@ func main() {
 	}
 
 	model := newDownloadModel(username, fn, partFn, service.url, offset)
-	p := tea.NewProgram(model)
+	p := tea.NewProgram(model, tea.WithMouseCellMotion())
 	finalModel, err := p.Run()
 	if err != nil {
 		log.Fatalln("UI error:", err)

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -82,6 +83,9 @@ type downloadModel struct {
 	blake3ReadBytes  int64
 	blake3RemoteHash string
 	verifying        bool
+
+	windowWidth  int
+	windowHeight int
 }
 
 func newDownloadModel(username, fn, partFn, url string, offset int64) downloadModel {
@@ -359,6 +363,24 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, tickSpeed())
 		}
 		return m, tea.Batch(cmds...)
+
+	case tea.WindowSizeMsg:
+		m.windowWidth = msg.Width
+		m.windowHeight = msg.Height
+
+		log.Println("width = ", msg.Width, ", height = ", msg.Height)
+
+		w := msg.Width - 4
+		if w < 10 {
+			w = 10
+		}
+		m.progress.Width = w
+		m.blake3Progress.Width = w
+
+		if m.verifying {
+			return m, m.blake3Progress.SetPercent(m.nextPercent)
+		}
+		return m, m.progress.SetPercent(m.nextPercent)
 	}
 	return m, nil
 }
@@ -375,10 +397,10 @@ func (m downloadModel) View() string {
 			formatBytes(m.blake3ReadBytes),
 			formatBytes(m.blake3TotalBytes),
 		))
-		return fmt.Sprintf("\n%s\n%s\n%s\n", title, bar, info)
+		return fmt.Sprintf("%s\n%s\n%s\n", title, bar, info)
 	}
 	if m.done && !m.verifying {
-		return styleDone("✓ Download complete, verifying...\n")
+		return styleDone("✓ Download complete. Checking integrity...\n")
 	}
 	title := styleTitle(fmt.Sprintf("📥 %s", m.filename))
 	bar := m.progress.View()
@@ -392,7 +414,7 @@ func (m downloadModel) View() string {
 		eta = formatDuration(time.Duration(etaSecs * float64(time.Second)))
 	}
 	info := styleInfo(fmt.Sprintf("%s / %s  •  %s  •  ETA: %s", downloaded, total, speed, eta))
-	return fmt.Sprintf("\n%s\n%s\n%s\n", title, bar, info)
+	return fmt.Sprintf("%s\n%s\n%s\n", title, bar, info)
 }
 
 // Helpers (styling, formatting)

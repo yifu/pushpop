@@ -66,8 +66,10 @@ Notes
 - [ ] It should be possible to bind to a list of interfaces on the push command. And on the pop command?
 - [ ] Remove blake package if not used anymore.
 - [ ] Pop: Move the Init()/Update()/View() functions into a tui.go file.
-- [ ] Pop: adapt the UI to the current window size.
+- [x] Pop: adapt the UI to the current window size.
 - [ ] Use socket unix when downloading on the same machine.
 - [ ] Provide multiple signature files: sha256/Blake3/etc.
 - [ ] Better processing when the file exists and/or the part file exists.
 
+## Known (unresolved) Issues:
+- [ ] When you change the current window size, then the title line gets duplicated.
