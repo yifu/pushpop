@@ -67,4 +67,6 @@ Notes
 - [ ] Remove blake package if not used anymore.
 - [ ] Pop: Move the Init()/Update()/View() functions into a tui.go file.
 - [ ] Pop: adapt the ui to the current window size.
+- [ ] Use socket unix when downloading on the same machine.
+- [ ] Provide multiple signature files: sha256/Blake3/etc.
 
