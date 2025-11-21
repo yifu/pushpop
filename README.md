@@ -69,4 +69,5 @@ Notes
 - [ ] Pop: adapt the UI to the current window size.
 - [ ] Use socket unix when downloading on the same machine.
 - [ ] Provide multiple signature files: sha256/Blake3/etc.
+- [ ] Better processing when the file exists and/or the part file exists.
 
