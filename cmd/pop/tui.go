@@ -75,6 +75,8 @@ type downloadModel struct {
 	lastDownloadedBytes int64
 	nextPercent         float64
 
+	chunkBuf []byte
+
 	// Blake3 verification fields
 	blake3Progress   progress.Model
 	blake3File       *os.File
@@ -103,6 +105,7 @@ func newDownloadModel(username, fn, partFn, url string, offset int64) downloadMo
 		lastUpdate:          time.Now(),
 		lastDownloadedBytes: offset,
 		blake3Progress:      blake,
+		chunkBuf:            make([]byte, 128*1024),
 	}
 }
 
@@ -154,12 +157,10 @@ func generateComputeBlake3Cmd(filename, remoteHash string) tea.Cmd {
 
 func generateReadBlake3ChunkCmd(file *os.File) tea.Cmd {
 	return func() tea.Msg {
-		buf := make([]byte, 32*1024)
+		buf := make([]byte, 128*1024)
 		n, err := file.Read(buf)
 		if n > 0 {
-			chunk := make([]byte, n)
-			copy(chunk, buf[:n])
-			return blake3ChunkReadMsg{chunk: chunk}
+			return blake3ChunkReadMsg{chunk: buf[:n]}
 		}
 		if err == io.EOF {
 			return blake3ChunkReadMsg{err: io.EOF}
@@ -189,14 +190,11 @@ func requestURL(m downloadModel) tea.Cmd {
 	}
 }
 
-func readChunk(body io.ReadCloser) tea.Cmd {
+func generateReadChunkCmd(body io.ReadCloser, buf []byte) tea.Cmd {
 	return func() tea.Msg {
-		buf := make([]byte, 4096)
 		n, err := body.Read(buf)
 		if n > 0 {
-			chunk := make([]byte, n)
-			copy(chunk, buf[:n])
-			return requestURLReceivedMsg(chunk)
+			return requestURLReceivedMsg(buf[:n]) // pas de copie supplémentaire
 		}
 		if err == io.EOF {
 			return requestURLDoneMsg{}
@@ -232,7 +230,7 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.downloadedBytes > 0 && msg.resp.StatusCode == http.StatusPartialContent {
 			m.totalBytes += m.downloadedBytes
 		}
-		return m, readChunk(m.Body)
+		return m, generateReadChunkCmd(m.Body, m.chunkBuf)
 
 	case requestURLReceivedMsg:
 		f, err := createOrOpenPartFile(m.partFilename)
@@ -250,7 +248,7 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.totalBytes > 0 {
 			m.nextPercent = float64(m.downloadedBytes) / float64(m.totalBytes)
 		}
-		return m, readChunk(m.Body)
+		return m, generateReadChunkCmd(m.Body, m.chunkBuf)
 
 	case requestURLDoneMsg:
 		if m.Body != nil {
