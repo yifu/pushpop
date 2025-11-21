@@ -73,3 +73,4 @@ Notes
 
 ## Known (unresolved) Issues:
 - [ ] When you change the current window size, then the title line gets duplicated.
+- [ ] Downloading a file through a socket is really slow. (Maybe we should have a longer chunk downloading buffer?)
