@@ -87,21 +87,85 @@ func main() {
 	fn := service.filename
 	partFn := fn + ".part"
 
-	if fileExists(fn) && !*force {
-		fmt.Printf("File %s already exists. Overwrite? [y/N]: ", fn)
-		reader := bufio.NewReader(os.Stdin)
-		answer, _ := reader.ReadString('\n')
-		answer = strings.TrimSpace(strings.ToLower(answer))
-		if answer != "y" && answer != "yes" {
-			fmt.Println("Aborted by user.")
-			os.Exit(0)
-		}
-	}
+	finalExists := fileExists(fn)
+	partExists := fileExists(partFn)
 
 	var offset int64
-	if fileExists(partFn) {
+
+	switch {
+	case !finalExists && !partExists:
+		offset = 0
+
+	case !finalExists && partExists:
 		if fi, err := os.Stat(partFn); err == nil {
 			offset = fi.Size()
+			fmt.Printf("Resuming download from %s (%s)\n", partFn, formatBytes(offset))
+		} else {
+			log.Fatalln("Cannot stat .part file:", err)
+		}
+
+	case finalExists && !partExists:
+		if !*force {
+			fmt.Printf("File %s already exists. Overwrite? [y/N]: ", fn)
+			reader := bufio.NewReader(os.Stdin)
+			answer, _ := reader.ReadString('\n')
+			answer = strings.TrimSpace(strings.ToLower(answer))
+			if answer != "y" && answer != "yes" {
+				fmt.Println("Aborted by user.")
+				os.Exit(0)
+			}
+		}
+		if err := os.Remove(fn); err != nil {
+			log.Fatalln("Cannot remove existing file:", err)
+		}
+		offset = 0
+
+	case finalExists && partExists:
+		if *force {
+			_ = os.Remove(fn)
+			_ = os.Remove(partFn)
+			offset = 0
+		} else {
+			fmt.Printf("Warning: Both %s and %s exist (inconsistent state)\n", fn, partFn)
+			fmt.Println("What do you want to do?")
+			fmt.Println("  [1] Keep final file, delete .part (assume complete)")
+			fmt.Println("  [2] Keep .part, delete final, resume download")
+			fmt.Println("  [3] Delete both, restart from scratch")
+			fmt.Println("  [4] Abort")
+			fmt.Print("Choice [1-4]: ")
+			reader := bufio.NewReader(os.Stdin)
+			choice, _ := reader.ReadString('\n')
+			choice = strings.TrimSpace(choice)
+
+			switch choice {
+			case "1":
+				if err := os.Remove(partFn); err != nil {
+					log.Fatalln("Cannot remove .part:", err)
+				}
+				fmt.Println("✓ File already complete:", fn)
+				os.Exit(0)
+			case "2":
+				if err := os.Remove(fn); err != nil {
+					log.Fatalln("Cannot remove final file:", err)
+				}
+				if fi, err := os.Stat(partFn); err == nil {
+					offset = fi.Size()
+					fmt.Printf("Resuming from .part (%s)\n", formatBytes(offset))
+				} else {
+					log.Fatalln("Cannot stat .part:", err)
+				}
+			case "3":
+				_ = os.Remove(fn)
+				_ = os.Remove(partFn)
+				offset = 0
+				fmt.Println("Restarting from scratch")
+			case "4", "":
+				fmt.Println("Aborted by user.")
+				os.Exit(0)
+			default:
+				fmt.Println("Invalid choice. Aborting.")
+				os.Exit(1)
+			}
 		}
 	}
 
