@@ -11,13 +11,12 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
-	"sync"
-
 	"github.com/grandcat/zeroconf"
-	"github.com/yifu/pushpop/pkg/blake"
+	"github.com/zeebo/blake3"
 )
 
 // --- BLAKE3 hash cache and synchronization ---
@@ -49,7 +48,7 @@ func getBlake3(path string) (string, error) {
 	hashCond[path] = c
 	hashMu.Unlock()
 
-	h, err := blake.CalcBlake3(path)
+	h, err := computeBlake3(path)
 
 	hashMu.Lock()
 	delete(hashCond, path)
@@ -57,6 +56,29 @@ func getBlake3(path string) (string, error) {
 	c.Broadcast()
 	hashMu.Unlock()
 	return h, err
+}
+
+// computeBlake3 computes the BLAKE3 hash of a file.
+func computeBlake3(filename string) (string, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	hasher := blake3.New()
+	buf := make([]byte, 128*1024) // 128 KiB buffer
+	for {
+		n, err := file.Read(buf)
+		if n > 0 {
+			hasher.Write(buf[:n])
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
 }
 
 // Option A: simple HTTP server that serves the file's directory.

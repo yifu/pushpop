@@ -64,7 +64,7 @@ Notes
  - [ ] Add a progress bar for downloading the BLAKE3 verification file.
  - [ ] Add a progress bar for computing the BLAKE3 checksum (file parsing).
 - [ ] It should be possible to bind to a list of interfaces on the push command. And on the pop command?
-- [ ] Remove blake package if not used anymore.
+- [x] Remove blake package if not used anymore.
 - [x] Pop: Move the Init()/Update()/View() functions into a tui.go file.
 - [x] Pop: adapt the UI to the current window size.
 - [ ] Use socket unix when downloading on the same machine.
