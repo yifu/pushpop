@@ -62,6 +62,7 @@ func main() {
 			if err != nil || entryUsername != username {
 				continue
 			}
+			log.Printf("Found entry %v, service: %s at %v:%d\n", entry, entry.Instance, entry.AddrIPv4, entry.Port)
 			ip, err := discovery.FindMatchingIP(entry.AddrIPv4)
 			if err != nil {
 				continue

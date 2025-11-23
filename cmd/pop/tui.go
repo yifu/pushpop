@@ -117,10 +117,18 @@ func generateRenameFileCmd(partFn, finalFn string) tea.Cmd {
 	}
 }
 
-func generateFetchBlake3Cmd(url, filename string) tea.Cmd {
+func generateFetchBlake3Cmd(url, filename, username string) tea.Cmd {
 	return func() tea.Msg {
 		blake3URL := url + filename + ".blake3"
-		resp, err := http.Get(blake3URL)
+		log.Println("Fetching BLAKE3 hash from", blake3URL)
+
+		req, err := http.NewRequest("GET", blake3URL, nil)
+		if err != nil {
+			return blake3FetchedMsg{err: err}
+		}
+		req.Header.Set("X-PushPop-User", username)
+
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return blake3FetchedMsg{err: err}
 		}
@@ -133,6 +141,7 @@ func generateFetchBlake3Cmd(url, filename string) tea.Cmd {
 		}
 
 		remoteHash := stringsTrimSpace(string(remoteHashBytes))
+		log.Println("Fetched BLAKE3 hash:", remoteHash)
 		if len(remoteHash) != 64 {
 			return blake3FetchedMsg{err: fmt.Errorf("invalid BLAKE3 hash length: %d", len(remoteHash))}
 		}
@@ -174,6 +183,7 @@ func generateReadBlake3ChunkCmd(file *os.File) tea.Cmd {
 
 func requestURL(m downloadModel) tea.Cmd {
 	return func() tea.Msg {
+		log.Println("Requesting URL:", m.URL)
 		req, err := http.NewRequest("GET", m.URL, nil)
 		if err != nil {
 			return requestURLPanicMsg(err)
@@ -263,7 +273,7 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = fmt.Errorf("rename: %w", msg.err)
 			return m, tea.Quit
 		}
-		return m, generateFetchBlake3Cmd(m.URL, m.filename)
+		return m, generateFetchBlake3Cmd(m.URL, m.filename, m.username)
 
 	case blake3FetchedMsg:
 		if msg.err != nil {

@@ -58,19 +58,23 @@ Notes
     - Implement `push --control` to attach a TUI to a running daemon.
     - Implement `push --stop` to gracefully stop a running daemon.
     - Implement `push --status` to display information about active daemons.
-- [ ] Display the user requesting a BLAKE3 in the push output.
+- [x] Display the user requesting a BLAKE3 in the push output.
 - [ ] Fix display of the effective user in push (when pop is run from another machine, push should show the real user, not just the requested name).
 - [ ] Update push to use Bubble Tea (TUI on the server side).
  - [ ] Add a progress bar for downloading the BLAKE3 verification file.
  - [ ] Add a progress bar for computing the BLAKE3 checksum (file parsing).
 - [ ] It should be possible to bind to a list of interfaces on the push command. And on the pop command?
 - [ ] Remove blake package if not used anymore.
-- [ ] Pop: Move the Init()/Update()/View() functions into a tui.go file.
+- [x] Pop: Move the Init()/Update()/View() functions into a tui.go file.
 - [x] Pop: adapt the UI to the current window size.
 - [ ] Use socket unix when downloading on the same machine.
 - [ ] Provide multiple signature files: sha256/Blake3/etc.
-- [ ] Better processing when the file exists and/or the part file exists.
+- [x] Better processing when the file exists and/or the part file exists.
 - [ ] Use IPV6 addresses eventually.
+- [ ] Implement TUI (with altScreen?) in push.
+- [ ] Push should be able to provide multiple files in parrallel.
+- [ ] Push should launch blake3 signature computation asap.
+- [ ] Log should not appear in the standard output when DEBUG env var is undefined.
 
 ## Known (unresolved) Issues:
 - [ ] When you change the current window size, then the title line gets duplicated.

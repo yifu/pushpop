@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -135,27 +136,34 @@ func main() {
 		http.FileServer(http.Dir(dir)).ServeHTTP(w, r)
 	})
 
-	// Serve the BLAKE3 hash at /<filename>.blake3
+	log.Println("New route for BLAKE3 hash is ", "/"+fn+".blake3")
+	// Serve the BLAKE3 hash file
 	mux.HandleFunc("/"+base+".blake3", func(w http.ResponseWriter, r *http.Request) {
-		// Extract client information
-		clientIP := r.RemoteAddr
-		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			clientIP = forwarded
+		// Extract user and IP (same logic as main file download)
+		user := r.Header.Get("X-PushPop-User")
+		if user == "" {
+			user = "(unknown)"
 		}
-		username := r.Header.Get("X-PushPop-User")
-		if username == "" {
-			username = "unknown"
+		ip := r.RemoteAddr
+		if idx := strings.LastIndex(ip, ":"); idx != -1 {
+			ip = ip[:idx]
 		}
 
-		fmt.Printf("🔐 BLAKE3 hash requested by: %s from %s\n", username, clientIP)
+		log.Printf("[%s] %s is requesting BLAKE3 hash", ip, user)
 
 		hash, err := getBlake3(fn)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprintf(w, "error: %v\n", err)
+			http.Error(w, "Failed to compute hash", http.StatusInternalServerError)
+			log.Printf("[%s] %s failed to get BLAKE3 hash: %v", ip, user, err)
 			return
 		}
-		fmt.Fprintln(w, hash)
+
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, hash)
+
+		log.Printf("BLAKE3 hash: '%v'", hash)
+
+		log.Printf("[%s] %s finished requesting BLAKE3 hash", ip, user)
 	})
 
 	srv := &http.Server{Handler: mux}
