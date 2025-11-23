@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -15,13 +16,14 @@ import (
 )
 
 func main() {
-	if len(os.Getenv("DEBUG")) > 0 {
+	// Gestion du logging conditionnel
+	if os.Getenv("DEBUG") != "" {
 		f, err := tea.LogToFile("debug.log", "debug")
-		if err != nil {
-			fmt.Println("fatal:", err)
-			os.Exit(1)
+		if err == nil {
+			defer f.Close()
 		}
-		defer f.Close()
+	} else {
+		log.SetOutput(io.Discard)
 	}
 
 	force := flag.Bool("force", false, "overwrite existing file without confirmation")

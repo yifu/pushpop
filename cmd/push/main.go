@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -85,8 +86,20 @@ func computeBlake3(filename string) (string, error) {
 // The server listens on ":0" to get a system-assigned available port,
 // then registers the mDNS service with that port.
 func main() {
+	// Initialisation du logging selon DEBUG
+	if os.Getenv("DEBUG") == "" {
+		log.SetOutput(io.Discard)
+	} else {
+		f, err := os.Create("push_debug.log")
+		if err == nil {
+			log.SetOutput(f)
+			defer f.Close()
+		}
+	}
+
 	if len(os.Args) != 2 {
-		log.Fatal("USAGE: push file")
+		fmt.Fprintln(os.Stderr, "USAGE: push file")
+		os.Exit(1)
 	}
 
 	fn := os.Args[1]

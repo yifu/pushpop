@@ -74,7 +74,7 @@ Notes
 - [ ] Implement TUI (with altScreen?) in push.
 - [ ] Push should be able to provide multiple files in parrallel.
 - [ ] Push should launch blake3 signature computation asap.
-- [ ] Log should not appear in the standard output when DEBUG env var is undefined.
+- [x] Log should not appear in the standard output when DEBUG env var is undefined.
 
 ## Known (unresolved) Issues:
 - [ ] When you change the current window size, then the title line gets duplicated.
