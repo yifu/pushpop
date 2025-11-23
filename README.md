@@ -70,7 +70,9 @@ Notes
 - [ ] Use socket unix when downloading on the same machine.
 - [ ] Provide multiple signature files: sha256/Blake3/etc.
 - [ ] Better processing when the file exists and/or the part file exists.
+- [ ] Use IPV6 addresses eventually.
 
 ## Known (unresolved) Issues:
 - [ ] When you change the current window size, then the title line gets duplicated.
 - [ ] Downloading a file through a socket is really slow. (Maybe we should have a longer chunk downloading buffer?)
+- [ ] Sometimes the blake verification progress bar keeps staying a 0%, while the actual processing is progressing.
