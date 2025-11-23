@@ -20,57 +20,55 @@ import (
 	"github.com/zeebo/blake3"
 )
 
-// --- BLAKE3 hash cache and synchronization ---
-type hashResult struct {
+// État de hash par fichier (prépare multi-fichiers)
+type hashState struct {
 	hash string
 	err  error
+	done bool
 }
 
 var (
-	hashCache = make(map[string]hashResult)
-	hashMu    sync.Mutex
-	hashCond  = make(map[string]*sync.Cond) // one condition per file
+	hashMu    sync.RWMutex
+	hashStore = map[string]*hashState{}
 )
 
-// getBlake3 computes or retrieves the BLAKE3 hash of a file with synchronization and caching.
-func getBlake3(path string) (string, error) {
+func ensureHashAsync(path string) {
 	hashMu.Lock()
-	if res, ok := hashCache[path]; ok {
+	if _, ok := hashStore[path]; ok {
 		hashMu.Unlock()
-		return res.hash, res.err
+		return
 	}
-	if c, ok := hashCond[path]; ok {
-		c.Wait()
-		res := hashCache[path]
-		hashMu.Unlock()
-		return res.hash, res.err
-	}
-	c := sync.NewCond(&hashMu)
-	hashCond[path] = c
+	st := &hashState{}
+	hashStore[path] = st
 	hashMu.Unlock()
 
-	h, err := computeBlake3(path)
-
-	hashMu.Lock()
-	delete(hashCond, path)
-	hashCache[path] = hashResult{h, err}
-	c.Broadcast()
-	hashMu.Unlock()
-	return h, err
+	go func() {
+		h, err := computeBlake3(path)
+		hashMu.Lock()
+		st.hash = h
+		st.err = err
+		st.done = true
+		hashMu.Unlock()
+	}()
 }
 
-// computeBlake3 computes the BLAKE3 hash of a file.
+func getHash(path string) (st *hashState) {
+	hashMu.RLock()
+	st = hashStore[path]
+	hashMu.RUnlock()
+	return
+}
+
 func computeBlake3(filename string) (string, error) {
-	file, err := os.Open(filename)
+	f, err := os.Open(filename)
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
-
+	defer f.Close()
 	hasher := blake3.New()
-	buf := make([]byte, 128*1024) // 128 KiB buffer
+	buf := make([]byte, 256*1024)
 	for {
-		n, err := file.Read(buf)
+		n, err := f.Read(buf)
 		if n > 0 {
 			hasher.Write(buf[:n])
 		}
@@ -78,13 +76,9 @@ func computeBlake3(filename string) (string, error) {
 			break
 		}
 	}
-
 	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
 }
 
-// Option A: simple HTTP server that serves the file's directory.
-// The server listens on ":0" to get a system-assigned available port,
-// then registers the mDNS service with that port.
 func main() {
 	// Initialisation du logging selon DEBUG
 	if os.Getenv("DEBUG") == "" {
@@ -128,22 +122,22 @@ func main() {
 		ln.Close()
 		log.Fatal(err)
 	}
-	kv := fmt.Sprintf("user=%s", usr.Username)
-	text := []string{kv}
+	text := []string{"user=" + usr.Username}
 
-	portn := 0
+	var portn int
 	fmt.Sscanf(portStr, "%d", &portn)
 
 	server, err := zeroconf.Register(base, "_pushpop._tcp", "local.", portn, text, nil)
-
 	if err != nil {
 		ln.Close()
 		log.Fatal(err)
 	}
 	defer server.Shutdown()
 
-	// HTTP server that serves the directory containing the file.
+	ensureHashAsync(fn)
+
 	mux := http.NewServeMux()
+
 	// Serve the file at the root: GET / -> file contents
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Extract client information
@@ -175,34 +169,31 @@ func main() {
 	// Serve the BLAKE3 hash file
 	mux.HandleFunc("/"+base+".blake3", func(w http.ResponseWriter, r *http.Request) {
 		// Extract user and IP (same logic as main file download)
-		user := r.Header.Get("X-PushPop-User")
-		if user == "" {
-			user = "(unknown)"
+		userH := r.Header.Get("X-PushPop-User")
+		if userH == "" {
+			userH = "(unknown)"
 		}
 		ip := r.RemoteAddr
 		if idx := strings.LastIndex(ip, ":"); idx != -1 {
 			ip = ip[:idx]
 		}
-
-		log.Printf("[%s] %s is requesting BLAKE3 hash", ip, user)
-
-		hash, err := getBlake3(fn)
-		if err != nil {
-			http.Error(w, "Failed to compute hash", http.StatusInternalServerError)
-			log.Printf("[%s] %s failed to get BLAKE3 hash: %v", ip, user, err)
+		st := getHash(fn)
+		if st == nil || !st.done {
+			http.Error(w, "BLAKE3 pending", http.StatusServiceUnavailable)
+			log.Printf("[%s] %s requested BLAKE3 (pending)", ip, userH)
 			return
 		}
-
+		if st.err != nil {
+			http.Error(w, "BLAKE3 error", http.StatusInternalServerError)
+			log.Printf("[%s] %s requested BLAKE3 (error: %v)", ip, userH, st.err)
+			return
+		}
+		log.Printf("[%s] %s served BLAKE3 %s", ip, userH, st.hash)
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, hash)
-
-		log.Printf("BLAKE3 hash: '%v'", hash)
-
-		log.Printf("[%s] %s finished requesting BLAKE3 hash", ip, user)
+		fmt.Fprint(w, st.hash+"\n")
 	})
 
 	srv := &http.Server{Handler: mux}
-
 	// Start the HTTP server in a goroutine
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {

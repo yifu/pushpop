@@ -117,31 +117,39 @@ func generateRenameFileCmd(partFn, finalFn string) tea.Cmd {
 	}
 }
 
+// Nouveau message si hash pas prêt
+type blake3PendingMsg struct{}
+
+// Message interne pour relancer la requête
+type blake3RetryFetchMsg struct{}
+
 func generateFetchBlake3Cmd(url, filename, username string) tea.Cmd {
 	return func() tea.Msg {
 		blake3URL := url + filename + ".blake3"
-		log.Println("Fetching BLAKE3 hash from", blake3URL)
-
 		req, err := http.NewRequest("GET", blake3URL, nil)
 		if err != nil {
 			return blake3FetchedMsg{err: err}
 		}
 		req.Header.Set("X-PushPop-User", username)
-
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return blake3FetchedMsg{err: err}
 		}
 		defer resp.Body.Close()
 
+		if resp.StatusCode == http.StatusServiceUnavailable {
+			return blake3PendingMsg{}
+		}
+		if resp.StatusCode != http.StatusOK {
+			return blake3FetchedMsg{err: fmt.Errorf("unexpected status %d", resp.StatusCode)}
+		}
+
 		limitedReader := io.LimitReader(resp.Body, 1024)
 		remoteHashBytes, err := io.ReadAll(limitedReader)
 		if err != nil {
 			return blake3FetchedMsg{err: err}
 		}
-
 		remoteHash := stringsTrimSpace(string(remoteHashBytes))
-		log.Println("Fetched BLAKE3 hash:", remoteHash)
 		if len(remoteHash) != 64 {
 			return blake3FetchedMsg{err: fmt.Errorf("invalid BLAKE3 hash length: %d", len(remoteHash))}
 		}
@@ -273,6 +281,14 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = fmt.Errorf("rename: %w", msg.err)
 			return m, tea.Quit
 		}
+		return m, generateFetchBlake3Cmd(m.URL, m.filename, m.username)
+
+	case blake3PendingMsg:
+		return m, tea.Tick(1*time.Second, func(time.Time) tea.Msg {
+			return blake3RetryFetchMsg{}
+		})
+
+	case blake3RetryFetchMsg:
 		return m, generateFetchBlake3Cmd(m.URL, m.filename, m.username)
 
 	case blake3FetchedMsg:
