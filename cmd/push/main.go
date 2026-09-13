@@ -67,14 +67,8 @@ func computeBlake3(filename string) (string, error) {
 	defer f.Close()
 	hasher := blake3.New()
 	buf := make([]byte, 256*1024)
-	for {
-		n, err := f.Read(buf)
-		if n > 0 {
-			hasher.Write(buf[:n])
-		}
-		if err != nil {
-			break
-		}
+	if _, err := io.CopyBuffer(hasher, f, buf); err != nil {
+		return "", err
 	}
 	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
 }
