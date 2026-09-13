@@ -24,6 +24,19 @@ func fileExists(name string) bool {
 	return !fi.IsDir()
 }
 
+// discardPartFile throws away a partial download so the transfer can restart
+// from offset 0. The pointer receiver mutates the caller's copy of the model,
+// which Update then returns.
+func (m *downloadModel) discardPartFile() error {
+	if err := os.Remove(m.partFilename); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("cannot discard %s: %w", m.partFilename, err)
+	}
+	m.downloadedBytes = 0
+	m.lastDownloadedBytes = 0
+	m.nextPercent = 0
+	return nil
+}
+
 func createOrOpenPartFile(partFn string) (*os.File, error) {
 	if fileExists(partFn) {
 		return os.OpenFile(partFn, os.O_WRONLY|os.O_APPEND, 0644)
@@ -69,6 +82,7 @@ type downloadModel struct {
 	totalBytes          int64
 	downloadedBytes     int64
 	err                 error
+	warning             string
 	done                bool
 	speed               float64
 	lastUpdate          time.Time
@@ -243,10 +257,48 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case requestURLGetBodyMsg:
-		m.Body = msg.resp.Body
-		m.totalBytes = msg.resp.ContentLength
-		if m.downloadedBytes > 0 && msg.resp.StatusCode == http.StatusPartialContent {
-			m.totalBytes += m.downloadedBytes
+		resp := msg.resp
+		resuming := m.downloadedBytes > 0
+		switch {
+		case resuming && resp.StatusCode == http.StatusPartialContent:
+			// The server honoured our Range request: keep what we already have.
+			m.Body = resp.Body
+			m.totalBytes = resp.ContentLength + m.downloadedBytes
+
+		case resuming && resp.StatusCode == http.StatusOK:
+			// The server ignored the Range header and is sending the whole
+			// file. Appending it behind the bytes we already have would
+			// corrupt the result, so discard them and start over.
+			m.warning = fmt.Sprintf("server does not support resuming, restarting from scratch (%s discarded)",
+				formatBytes(m.downloadedBytes))
+			if err := m.discardPartFile(); err != nil {
+				resp.Body.Close()
+				m.err = err
+				return m, tea.Quit
+			}
+			m.Body = resp.Body
+			m.totalBytes = resp.ContentLength
+
+		case resuming && resp.StatusCode == http.StatusRequestedRangeNotSatisfiable:
+			// The .part file is at least as large as the remote file: it is a
+			// stale leftover. Drop it and ask again from the beginning —
+			// without an offset the next request cannot hit a 416.
+			resp.Body.Close()
+			m.warning = fmt.Sprintf("%s is larger than the remote file, restarting from scratch", m.partFilename)
+			if err := m.discardPartFile(); err != nil {
+				m.err = err
+				return m, tea.Quit
+			}
+			return m, requestURL(m)
+
+		case resp.StatusCode == http.StatusOK:
+			m.Body = resp.Body
+			m.totalBytes = resp.ContentLength
+
+		default:
+			resp.Body.Close()
+			m.err = fmt.Errorf("unexpected HTTP status: %s", resp.Status)
+			return m, tea.Quit
 		}
 		return m, generateReadChunkCmd(m.Body, m.chunkBuf)
 
@@ -437,12 +489,16 @@ func (m downloadModel) View() string {
 		eta = formatDuration(time.Duration(etaSecs * float64(time.Second)))
 	}
 	info := styleInfo(fmt.Sprintf("%s / %s  •  %s  •  ETA: %s", downloaded, total, speed, eta))
+	if m.warning != "" {
+		return fmt.Sprintf("%s\n%s\n%s\n%s\n", title, bar, info, styleWarn("⚠ "+m.warning))
+	}
 	return fmt.Sprintf("%s\n%s\n%s\n", title, bar, info)
 }
 
 // Helpers (styling, formatting)
 var (
 	styleErr     = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render
+	styleWarn    = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render
 	styleDone    = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render
 	styleInfo    = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render
 	styleTitleFn = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("86"))
