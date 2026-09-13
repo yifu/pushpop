@@ -59,7 +59,8 @@ Notes
     - Implement `push --stop` to gracefully stop a running daemon.
     - Implement `push --status` to display information about active daemons.
 - [x] Display the user requesting a BLAKE3 in the push output.
-- [ ] Fix display of the effective user in push (when pop is run from another machine, push should show the real user, not just the requested name).
+- [x] Fix display of the effective user in push (when pop is run from another machine, push should show the real user, not just the requested name).
+    - `pop` now sends its own local user in `X-PushPop-User`, instead of the name it was asked to look for.
 - [ ] Update push to use Bubble Tea (TUI on the server side).
  - [ ] Add a progress bar for downloading the BLAKE3 verification file.
  - [ ] Add a progress bar for computing the BLAKE3 checksum (file parsing).

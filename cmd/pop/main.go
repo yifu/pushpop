@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/user"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,10 +30,15 @@ func main() {
 	force := flag.Bool("force", false, "overwrite existing file without confirmation")
 	flag.Parse()
 
+	// localUser identifies *this* machine's user; it is what push displays.
+	// It must not be confused with the username below, which is only the key
+	// used to pick the right mDNS announcement (i.e. the sender's name).
+	localUser := currentUser()
+
 	var username string
 	args := flag.Args()
 	if len(args) == 0 {
-		username = os.Getenv("USER")
+		username = localUser
 		if username == "" {
 			log.Fatal("unable to determine username")
 		}
@@ -172,7 +178,7 @@ func main() {
 		}
 	}
 
-	model := newDownloadModel(username, fn, partFn, service.url, offset)
+	model := newDownloadModel(localUser, fn, partFn, service.url, offset)
 	p := tea.NewProgram(model, tea.WithMouseCellMotion())
 	finalModel, err := p.Run()
 	if err != nil {
@@ -184,4 +190,13 @@ func main() {
 		log.Fatalln("Error:", dm.err)
 	}
 	fmt.Println("✓ Download complete and verified:", fn)
+}
+
+// currentUser returns the name of the user actually running pop, so that push
+// can display who is downloading rather than who was asked for.
+func currentUser() string {
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		return u.Username
+	}
+	return os.Getenv("USER")
 }

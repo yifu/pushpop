@@ -11,7 +11,6 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -71,6 +70,19 @@ func computeBlake3(filename string) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
+}
+
+// clientInfo extracts the username announced by pop and the client IP.
+func clientInfo(r *http.Request) (username, ip string) {
+	username = r.Header.Get("X-PushPop-User")
+	if username == "" {
+		username = "(unknown)"
+	}
+	ip = r.RemoteAddr
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	return username, ip
 }
 
 func main() {
@@ -134,17 +146,7 @@ func main() {
 
 	// Serve the file at the root: GET / -> file contents
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Extract client information
-		clientIP := r.RemoteAddr
-		// Try to get the real IP if behind a proxy
-		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			clientIP = forwarded
-		}
-		// Extract username from custom header
-		username := r.Header.Get("X-PushPop-User")
-		if username == "" {
-			username = "unknown"
-		}
+		username, clientIP := clientInfo(r)
 
 		// Log download start
 		fmt.Printf("📥 Download started by: %s from %s\n", username, clientIP)
@@ -162,15 +164,7 @@ func main() {
 	log.Println("New route for BLAKE3 hash is ", "/"+fn+".blake3")
 	// Serve the BLAKE3 hash file
 	mux.HandleFunc("/"+base+".blake3", func(w http.ResponseWriter, r *http.Request) {
-		// Extract user and IP (same logic as main file download)
-		userH := r.Header.Get("X-PushPop-User")
-		if userH == "" {
-			userH = "(unknown)"
-		}
-		ip := r.RemoteAddr
-		if idx := strings.LastIndex(ip, ":"); idx != -1 {
-			ip = ip[:idx]
-		}
+		userH, ip := clientInfo(r)
 		st := getHash(fn)
 		if st == nil || !st.done {
 			http.Error(w, "BLAKE3 pending", http.StatusServiceUnavailable)

@@ -73,7 +73,7 @@ type speedTickMsg time.Time
 
 // Model
 type downloadModel struct {
-	username            string
+	localUser           string
 	filename            string
 	partFilename        string
 	URL                 string
@@ -104,13 +104,13 @@ type downloadModel struct {
 	windowHeight int
 }
 
-func newDownloadModel(username, fn, partFn, url string, offset int64) downloadModel {
+func newDownloadModel(localUser, fn, partFn, url string, offset int64) downloadModel {
 	prog := progress.New(progress.WithDefaultGradient())
 	prog.Width = 50
 	blake := progress.New(progress.WithDefaultGradient())
 	blake.Width = 50
 	return downloadModel{
-		username:            username,
+		localUser:           localUser,
 		filename:            fn,
 		partFilename:        partFn,
 		URL:                 url,
@@ -137,14 +137,14 @@ type blake3PendingMsg struct{}
 // Message interne pour relancer la requête
 type blake3RetryFetchMsg struct{}
 
-func generateFetchBlake3Cmd(url, filename, username string) tea.Cmd {
+func generateFetchBlake3Cmd(url, filename, localUser string) tea.Cmd {
 	return func() tea.Msg {
 		blake3URL := url + filename + ".blake3"
 		req, err := http.NewRequest("GET", blake3URL, nil)
 		if err != nil {
 			return blake3FetchedMsg{err: err}
 		}
-		req.Header.Set("X-PushPop-User", username)
+		req.Header.Set("X-PushPop-User", localUser)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return blake3FetchedMsg{err: err}
@@ -213,7 +213,7 @@ func requestURL(m downloadModel) tea.Cmd {
 		if m.downloadedBytes > 0 {
 			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", m.downloadedBytes))
 		}
-		req.Header.Set("X-PushPop-User", m.username)
+		req.Header.Set("X-PushPop-User", m.localUser)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return requestURLPanicMsg(err)
@@ -333,7 +333,7 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = fmt.Errorf("rename: %w", msg.err)
 			return m, tea.Quit
 		}
-		return m, generateFetchBlake3Cmd(m.URL, m.filename, m.username)
+		return m, generateFetchBlake3Cmd(m.URL, m.filename, m.localUser)
 
 	case blake3PendingMsg:
 		return m, tea.Tick(1*time.Second, func(time.Time) tea.Msg {
@@ -341,7 +341,7 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 
 	case blake3RetryFetchMsg:
-		return m, generateFetchBlake3Cmd(m.URL, m.filename, m.username)
+		return m, generateFetchBlake3Cmd(m.URL, m.filename, m.localUser)
 
 	case blake3FetchedMsg:
 		if msg.err != nil {
