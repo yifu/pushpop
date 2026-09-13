@@ -1,0 +1,13 @@
+# Binaries dropped at the root by build.sh
+/push
+/pop
+
+# Debug logs written by push and pop when DEBUG is set
+*.log
+
+# Artefacts left behind by build_debian_package.sh
+/pushpop_*/
+/pushpop_*.deb
+
+# Editor settings
+/.vscode/
