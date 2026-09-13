@@ -10,24 +10,30 @@ Repository layout (new idiomatic Go structure)
 
 Quick Usage
 
-1) Build:
+1) Build. Both binaries land at the repository root:
 
 ```bash
-go build ./cmd/push
-go build ./cmd/pop
+./build.sh
+# or, by hand:
+go build -o push ./cmd/push
+go build -o pop ./cmd/pop
 ```
+
+Note that `go build ./cmd/pop` needs the package directory, not
+`cmd/pop/main.go`: the command is split across `main.go` and `tui.go`.
 
 2) Send a file from machine A:
 
 ```bash
-./cmd/push/push /path/to/file
+./push /path/to/file
 ```
 
-3) On machine B, receive the file (optionally provide the username):
+3) On machine B, receive the file (optionally provide the sender's username):
 
 ```bash
-./cmd/pop/pop <username>
-# or without argument it uses the USER environment variable
+./pop <username>
+# without an argument it looks for a file shared by yourself
+./pop --force <username>   # overwrite an existing file without asking
 ```
 
 Notes
