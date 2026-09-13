@@ -367,25 +367,24 @@ func (m downloadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case speedTickMsg:
 		var cmds []tea.Cmd
 		now := time.Time(msg)
-		if !m.lastUpdate.IsZero() {
-			if !m.verifying && !m.done {
-				elapsed := now.Sub(m.lastUpdate).Seconds()
-				if elapsed > 0 {
-					diff := m.downloadedBytes - m.lastDownloadedBytes
-					m.speed = float64(diff) / elapsed
-				}
-				cmds = append(cmds, m.progress.SetPercent(m.nextPercent))
-			} else if m.verifying {
-				cmds = append(cmds, m.blake3Progress.SetPercent(m.nextPercent))
+		switch {
+		case m.verifying:
+			cmds = append(cmds, m.blake3Progress.SetPercent(m.nextPercent))
+		case !m.done:
+			if elapsed := now.Sub(m.lastUpdate).Seconds(); elapsed > 0 {
+				diff := m.downloadedBytes - m.lastDownloadedBytes
+				m.speed = float64(diff) / elapsed
 			}
-		}
-		if !m.verifying && !m.done {
 			m.lastUpdate = now
 			m.lastDownloadedBytes = m.downloadedBytes
+			cmds = append(cmds, m.progress.SetPercent(m.nextPercent))
 		}
-		if m.verifying || !m.done {
-			cmds = append(cmds, tickSpeed())
-		}
+		// Always reschedule: between the end of the download and the start of
+		// the verification the model is neither downloading nor verifying, and
+		// stopping the tick there would kill it for good — the BLAKE3 bar would
+		// then never receive a SetPercent and stay at 0%. The program quits via
+		// tea.Quit, which drops any pending tick.
+		cmds = append(cmds, tickSpeed())
 		return m, tea.Batch(cmds...)
 
 	case tea.WindowSizeMsg:

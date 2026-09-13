@@ -79,4 +79,6 @@ Notes
 ## Known (unresolved) Issues:
 - [ ] When you change the current window size, then the title line gets duplicated.
 - [ ] Downloading a file through a socket is really slow. (Maybe we should have a longer chunk downloading buffer?)
-- [ ] Sometimes the blake verification progress bar keeps staying a 0%, while the actual processing is progressing.
+- [x] ~~Sometimes the blake verification progress bar keeps staying a 0%, while the actual processing is progressing.~~
+    - The speed tick stopped rescheduling itself in the `done && !verifying` window, killing the ticker before the verification started.
+- [ ] The BLAKE3 bar lags well behind the byte counter on fast disks: the spring animation cannot keep up with hashing.
